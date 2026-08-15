@@ -60,6 +60,9 @@ def main() -> None:
     seed = meta["seed"]
     op_layer = meta["op_layer"]
     readout_layers = meta["readout_layers"]
+    # f2 is read where the lens works, not where we inject. G1 measured the
+    # readout as ~25x better at 59 than at the injection layers.
+    readout_primary = meta.get("readout_primary", op_layer)
     orders = meta["orders"]
 
     cell_concept = blob["cell_concept"].astype(str)
@@ -108,7 +111,7 @@ def main() -> None:
         f3 = trial_ident[mask]
         return f1, ranks, f3
 
-    rank_key = f"cached_rank_L{op_layer}"
+    rank_key = f"cached_rank_L{readout_primary}"
     f1_pass, ranks, f3_pass = arrays_for(is_injected, rank_key)
     concepts_inj = trial_concept[is_injected]
     orders_inj = trial_order[is_injected]
@@ -121,9 +124,10 @@ def main() -> None:
     w(f"{RULE}\n================ GATE G4 : three-factor decomposition ================")
 
     w("\nCONFIG")
-    w(f"  operating point          layer {op_layer}, alpha_rel {meta['strength']}")
+    w(f"  injection layer          {op_layer}, alpha_rel {meta['strength']}")
+    w(f"  f2 readout layer         {readout_primary}   <- not the injection layer")
     w(f"  probe layer              {meta['probe_layer']}")
-    w(f"  readout layers           {readout_layers}")
+    w(f"  readout layers swept     {readout_layers}")
     w(f"  orders                   {orders}")
     w(f"  cells / trials           {meta['n_cells']} / {meta['n_trials']}")
     w(f"  generations dropped      {meta['dropped_generations']} (no matching cell)")
@@ -231,14 +235,14 @@ def main() -> None:
     w("  structure or a global shift.")
     w(f"    {'position':<12}{'f2':>9}{'median rank':>13}")
     for label in ("report", "injection", "random"):
-        key = f"pos_rank_L{op_layer}_{label}"
+        key = f"pos_rank_L{readout_primary}_{label}"
         if key not in blob:
             continue
         pos_ranks = cell_to_trial(blob[key])[is_injected]
         w(f"    {label:<12}{float(np.mean(fac.compute_f2(pos_ranks, args.k))):>9.4f}"
           f"{np.nanmedian(pos_ranks):>13.0f}")
     cached = ranks
-    fresh_key = f"pos_rank_L{op_layer}_report"
+    fresh_key = f"pos_rank_L{readout_primary}_report"
     if fresh_key in blob:
         fresh = cell_to_trial(blob[fresh_key])[is_injected]
         both = np.isfinite(cached) & np.isfinite(fresh)
@@ -256,8 +260,8 @@ def main() -> None:
         w(f"    {row['k']:>4}{row['f1']:>8.4f}{row['f2']:>8.4f}{row['f3']:>8.4f}"
           f"{row['observed_cascade_rate']:>10.4f}{f2_n:>10.4f}")
     w("")
-    w(f"  layer sensitivity of f2 at k={args.k} (readout layer, injection stays"
-      f" at {op_layer})")
+    w(f"  layer sensitivity of f2 at k={args.k} (readout layer varies, injection"
+      f" stays at {op_layer})")
     w(f"    {'layer':>6}{'f2':>9}{'median rank':>13}{'null f2':>10}")
     for layer in readout_layers:
         key = f"cached_rank_L{layer}"
@@ -268,6 +272,31 @@ def main() -> None:
         w(f"    {layer:>6}{float(np.mean(fac.compute_f2(lr, args.k))):>9.4f}"
           f"{np.nanmedian(lr):>13.0f}"
           f"{float(np.mean(fac.compute_f2(ln, args.k))):>10.4f}")
+    w("")
+    w("  J-lens vs logit lens through the identical pipeline. G1 found the")
+    w("  logit lens ahead at k=10 and k=25 on the eval sets, so neither is")
+    w("  assumed correct here; both are carried through the cascade.")
+    w(f"    {'layer':>6}{'k':>5}{'f2 J-lens':>11}{'f2 logit':>11}{'J - logit':>11}")
+    for layer in readout_layers:
+        jk, lk = f"cached_rank_L{layer}", f"logit_rank_L{layer}"
+        if lk not in blob.files:
+            continue
+        jr = cell_to_trial(blob[jk])[is_injected]
+        lr = cell_to_trial(blob[lk])[is_injected]
+        for k in (1, args.k, 25):
+            fj = float(np.mean(fac.compute_f2(jr, k)))
+            fl = float(np.mean(fac.compute_f2(lr, k)))
+            mark = "  <- primary" if (layer == readout_primary and k == args.k) else ""
+            w(f"    {layer:>6}{k:>5}{fj:>11.4f}{fl:>11.4f}{fj - fl:>+11.4f}{mark}")
+    lk_primary = f"logit_rank_L{readout_primary}"
+    if lk_primary in blob.files:
+        lr = cell_to_trial(blob[lk_primary])[is_injected]
+        row_logit = fac.cascade(f1_pass, fac.compute_f2(lr, args.k), f3_pass)
+        w(f"    full cascade under the logit lens: f1={row_logit['f1']:.4f} "
+          f"f2={row_logit['f2']:.4f} f3={row_logit['f3']:.4f} "
+          f"observed={row_logit['observed_cascade_rate']:.4f} "
+          f"residual={row_logit['residual']:.3e}")
+
     w("")
     w("  jackknife, leave one concept out")
     f2_pass = fac.compute_f2(ranks, args.k)

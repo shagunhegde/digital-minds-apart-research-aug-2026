@@ -60,6 +60,8 @@ def main() -> None:
     op_layer = args.layer if args.layer is not None else layers[0]
     probe_layer = args.probe_layer if args.probe_layer is not None else op_layer
     orders = cfg["planned"]["orders"]
+    readout_layers = cfg["planned"]["readout_layers"]
+    readout_primary = cfg["planned"]["f2_primary_layer"]
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
 
@@ -146,27 +148,37 @@ def main() -> None:
     print(f"[cells] {len(cell_rows)} operating-point cells from shards")
 
     def ranks_from_residual(residual: torch.Tensor, concept: str, which_lens,
-                            readout_layer: int) -> float:
-        """1-indexed rank of the concept token in a lens readout at one layer."""
+                            readout_layer: int, mode: str = "jacobian") -> float:
+        """1-indexed rank of the concept token in a readout at one layer.
+
+        mode="logit" skips the J transport entirely, giving the vanilla
+        logit-lens baseline on the identical residual. G1 found the logit lens
+        beats the J-lens at k=10 and k=25, so both are carried through the
+        cascade rather than one being assumed correct.
+        """
         ids = concept_token_ids[concept]
         if not ids:
             return float("nan")
         logits = model.unembed(
-            lens_mod.transport(which_lens, residual, readout_layer))
+            lens_mod.transport(which_lens, residual, readout_layer, mode))
         r = lens_mod.ranks_of(logits.float(),
                               torch.as_tensor(ids, device=logits.device))
         return float(r.min())
 
     # cached-report-position ranks, per readout layer
-    cached_ranks = {l: np.full(len(cell_rows), np.nan) for l in layers}
-    cached_ranks_r = {l: np.full(len(cell_rows), np.nan) for l in layers} if r_lens else {}
+    cached_ranks = {l: np.full(len(cell_rows), np.nan) for l in readout_layers}
+    logit_ranks = {l: np.full(len(cell_rows), np.nan) for l in readout_layers}
+    cached_ranks_r = ({l: np.full(len(cell_rows), np.nan) for l in readout_layers}
+                      if r_lens else {})
     with torch.inference_mode():
         for i, row in enumerate(cell_rows):
-            for readout_layer in layers:
+            for readout_layer in readout_layers:
                 j = cache_layers.index(readout_layer)
                 h = torch.as_tensor(row["residuals"][j], device=device).unsqueeze(0)
                 cached_ranks[readout_layer][i] = ranks_from_residual(
                     h, row["concept"], lens, readout_layer)
+                logit_ranks[readout_layer][i] = ranks_from_residual(
+                    h, row["concept"], lens, readout_layer, mode="logit")
                 if r_lens:
                     cached_ranks_r[readout_layer][i] = ranks_from_residual(
                         h, row["concept"], r_lens, readout_layer)
@@ -181,7 +193,7 @@ def main() -> None:
     answer = manifest["prompt_meta"][orders[0]]["clean_task_answer"]
 
     pos_ranks = {(l, p): np.full(len(cell_rows), np.nan)
-                 for l in layers for p in ("report", "injection", "random")}
+                 for l in readout_layers for p in ("report", "injection", "random")}
     for order in orders:
         ids, positions, _ = sweep_mod.sweep_prompt(
             model, tok, order, task, answer, args.inject_width,
@@ -205,9 +217,9 @@ def main() -> None:
                                    device=device)
                 result = inject.injected_prefill(
                     model, batch_ids, op_layer, stacked, alpha, positions,
-                    record_layers=layers, record_positions=slice(None))
+                    record_layers=readout_layers, record_positions=slice(None))
                 with torch.inference_mode():
-                    for readout_layer in layers:
+                    for readout_layer in readout_layers:
                         full = result["residuals"][readout_layer]
                         for k, concept in enumerate(chunk):
                             row = cell_key[(concept, order, condition)]
@@ -252,8 +264,9 @@ def main() -> None:
         "trial_order": np.array(trial_order),
         "trial_condition": np.array(trial_condition),
     }
-    for l in layers:
+    for l in readout_layers:
         payload[f"cached_rank_L{l}"] = cached_ranks[l]
+        payload[f"logit_rank_L{l}"] = logit_ranks[l]
         for p in ("report", "injection", "random"):
             payload[f"pos_rank_L{l}_{p}"] = pos_ranks[(l, p)]
         if r_lens:
@@ -262,7 +275,8 @@ def main() -> None:
 
     meta = {
         "op_layer": op_layer, "strength": args.strength,
-        "probe_layer": probe_layer, "readout_layers": layers,
+        "probe_layer": probe_layer, "readout_layers": readout_layers,
+        "readout_primary": readout_primary, "injection_layers": layers,
         "orders": orders, "conditions": list(sweep_mod.CONDITIONS),
         "n_cells": len(cell_rows), "n_trials": len(trial_cell),
         "dropped_generations": dropped,

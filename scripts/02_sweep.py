@@ -90,7 +90,11 @@ def main() -> None:
             vectors_by_layer[layer], seed + layer)
 
     cells = sweep_mod.build_cells(layers, strengths, orders)
-    cache_layers = sorted({*layers, model.n_layers - 1})
+    # f2 reads out at readout_layers, which are NOT the injection layers:
+    # G1 measured the lens as ~25x better at 59 than at 27/31/35. The final
+    # block is cached too (for model logits), though it carries no lens.
+    readout_layers = cfg['planned']['readout_layers']
+    cache_layers = sorted({*layers, *readout_layers, model.n_layers - 1})
     true_ids, false_ids = sweep_mod.boolean_token_ids(tok)
     if not true_ids or not false_ids:
         raise RuntimeError(
@@ -153,6 +157,8 @@ def main() -> None:
         "layers": layers, "strengths": strengths, "orders": orders,
         "conditions": list(sweep_mod.CONDITIONS),
         "cache_layers": cache_layers,
+        "readout_layers": readout_layers,
+        "f2_primary_layer": cfg["planned"]["f2_primary_layer"],
         "task": task,
         "prompt_meta": prompt_meta,
         "true_ids": true_ids, "false_ids": false_ids,

@@ -92,6 +92,25 @@ planned:
   # The other 48 blocks are linear_attention and carry recurrent state.
   layers: [27, 31, 35]
   layer_block_type: full_attention
+
+  # Where f2 READS OUT, which need not be where we inject. Set from G1's
+  # measured lens quality (artifacts/g1/g1_report.txt), 2026-08-15:
+  #
+  #   layer   J pass@1   median rank   trash@10   eff.rank (G0)
+  #      27      0.000           670      0.761       2.17
+  #      31      0.000           819      0.887       1.91
+  #      35      0.007          1104      0.914       3.69
+  #      40      0.086           186      0.611       6.42
+  #      59      0.136           100      0.405      47.26
+  #
+  # At the injection layers the readout is nearly rank-2 and ~90% of the
+  # top-10 is special tokens and byte fragments, so f2 measured there would
+  # report a property of the readout site rather than of the model. 40 and 59
+  # are added; the three injection layers are kept so the sensitivity curve
+  # spans the bad-to-good range and the dependence is visible rather than
+  # assumed away.
+  readout_layers: [27, 31, 35, 40, 59]
+  f2_primary_layer: 59
   # alpha_rel is a multiple of the median clean residual L2 norm at the
   # injection positions, cached per layer. Never pass a raw alpha.
   strengths_rel: [1.0, 2.0, 4.0, 8.0]

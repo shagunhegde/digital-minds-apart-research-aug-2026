@@ -160,6 +160,7 @@ def main() -> None:
     cascade_ctx = None
     if fx is not None and fx_meta is not None:
         op_layer, seed = fx_meta["op_layer"], fx_meta["seed"]
+        readout_primary = fx_meta.get("readout_primary", op_layer)
         cell_condition = fx["cell_condition"].astype(str)
         cell_concept = fx["cell_concept"].astype(str)
         features = fx["cell_features"]
@@ -183,7 +184,7 @@ def main() -> None:
         cell_score[ctl_cells] = probe["scores_control"]
         is_inj = trial_condition == "injected"
         is_rand = trial_condition == "control_random"
-        rank_key = f"cached_rank_L{op_layer}"
+        rank_key = f"cached_rank_L{readout_primary}"
         ranks = fx[rank_key][trial_cell][is_inj]
         rand_ranks = fx[rank_key][trial_cell][is_rand]
         f3_pass = trial_ident[is_inj]
@@ -210,7 +211,7 @@ def main() -> None:
             rows.append(("G4", label, fmt(iv), arr.size))
             w(f"    {'G4':<5}{label:<38}{fmt(iv):>26}{arr.size:>8}")
         for label in ("report", "injection", "random"):
-            key = f"pos_rank_L{op_layer}_{label}"
+            key = f"pos_rank_L{readout_primary}_{label}"
             if key not in fx.files:
                 continue
             arr = fac.compute_f2(fx[key][trial_cell][is_inj], args.k)
