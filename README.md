@@ -9,10 +9,7 @@ P(report) = P(represented) x P(verbalizable | represented) x P(reported | verbal
              f1                f2                             f3
 ```
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/USER/REPO/blob/main/notebooks/demo.ipynb)
-
-> Replace `USER/REPO` once the repo is pushed. The badge is the only thing in this
-> README that points at a location which does not exist yet.
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shagunhegde/digital-minds-apart-research-aug-2026/blob/main/notebooks/demo.ipynb)
 
 ---
 
@@ -137,6 +134,32 @@ Almost everything. New code was written only where nothing was published.
 
 Written from scratch: the random-rotation null lens, the injection harness, the
 sweep, the cascade, and the gates.
+
+### Provenance and licensing of vendored content
+
+Three files under `configs/` contain material copied verbatim from upstream, so
+that this sprint reproduces without a network call. Each records its source repo,
+commit SHA and file path; `judge_rubrics.json` also records a sha256 of the source
+file it was extracted from.
+
+| file | from | upstream licence |
+|---|---|---|
+| `configs/judge_rubrics.json` — 8 rubrics, ~12 KB of prompt text | `safety-research/introspection-mechanisms` `src/eval_utils.py` | **no LICENSE file**; its README states the project is "released for research purposes" |
+| `configs/concepts.json` — 500 concept words | same repo, `concepts_list.py` + `01_concept_injection.py` | as above |
+| `configs/baseline_words.json` — 100 baseline words | same repo, `src/vector_utils.py` | as above |
+| the two protocol instructions in `src/prompts.py` | `e-m-garcia/j-lens-verbalized-awareness` | Apache-2.0 |
+| `jlens` (imported, not vendored) and the six eval sets (fetched at run time) | `anthropics/jacobian-lens` | Apache-2.0 |
+
+The judge rubrics are reproduced **verbatim and unmodified** because comparability
+with the published numbers depends on the exact wording. This use is research, with
+attribution, consistent with the upstream's stated intent — but note it is not a
+formal licence grant. If you are reusing this repo commercially, or if you are an
+upstream author who would rather these were fetched at run time than vendored, open
+an issue and they will be replaced with a fetch-and-verify step like the one already
+used for the eval sets.
+
+This repo's own code carries no licence file yet; that is the author's choice to
+make and has not been made.
 
 ---
 
