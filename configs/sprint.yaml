@@ -96,7 +96,9 @@ planned:
   # injection positions, cached per layer. Never pass a raw alpha.
   strengths_rel: [1.0, 2.0, 4.0, 8.0]
   orders: [task_then_report, report_then_task]   # Garcia protocol names
-  conditions: [injected, control_zero, control_random_direction]
+  # These names are what appear in every report and shard. src/sweep.py holds
+  # the authoritative tuple (CONDITIONS); this list must match it exactly.
+  conditions: [injected, control_zero, control_random]
   n_concepts: 60                                 # 20 high / 20 mid / 20 zero
   readout_k: [1, 5, 10, 25, 50]                  # f2 is a curve, not a scalar
   generation:
