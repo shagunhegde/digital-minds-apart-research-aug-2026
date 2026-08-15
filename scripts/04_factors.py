@@ -1,13 +1,20 @@
 """Turn sweep shards + generations into the inputs the cascade needs.
 
-    python scripts/04_factors.py [--layer 27] [--strength 0.09]
+    python scripts/04_factors.py --vector-arm concept [--strength 0.09]
+
+ONE ARM PER RUN. The sweep carries both arms in one grid, but a cascade is a
+cascade of something: f1, f2 and f3 all have to be measured on the same
+injected object for the product to telescope. So this script selects one arm's
+`injected` cells, pairs them with the shared controls, and writes a
+factors_input.npz for that arm. Run it twice, into two directories, and G4
+reads each without knowing the arm exists.
 
 Everything GPU-shaped happens here -- lens readouts from cached residuals, and
 the position-control pass -- and is written to factors_input.npz so that
 src/factors.py and gates/g4_factors.py run on any machine.
 
 The position control needs residuals at the injection positions and at a
-random position, which the sweep did not cache (it caches the report position
+control position, which the sweep did not cache (it caches the report position
 only, deliberately -- that is what keeps shards at 350 MB). So this script
 re-runs the operating-point cells recording every position. That fresh pass
 also recomputes the REPORT position, which the sweep already has, giving a
@@ -24,12 +31,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import inject  # noqa: E402
+import band_inject  # noqa: E402
+import config as cfg_mod  # noqa: E402
 import lens as lens_mod  # noqa: E402
 import sweep as sweep_mod  # noqa: E402
 import vectors as vec_mod  # noqa: E402
@@ -37,34 +44,42 @@ import vectors as vec_mod  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--layer", type=int, default=None, help="injection layer")
+    ap.add_argument("--vector-arm", type=str, default=None,
+                    help="which injected arm this cascade is over; "
+                         "default the first of planned.vector_arms")
     ap.add_argument("--strength", type=float, default=None,
                     help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--probe-layer", type=int, default=None,
-                    help="layer whose residual feeds the f1 probe; default = --layer")
+                    help="layer whose residual feeds the f1 probe; "
+                         "default planned.probe_layer")
     ap.add_argument("--batch", type=int, default=8)
-    ap.add_argument("--inject-width", type=int, default=8)
-    ap.add_argument("--inject-tail-offset", type=int, default=4)
     ap.add_argument("--r-lens", action="store_true",
                     help="also read out with the R-lens from camilablank/workspace-lenses")
     ap.add_argument("--sweep", type=Path, default=ROOT / "artifacts" / "sweep")
     ap.add_argument("--gen", type=Path, default=ROOT / "artifacts" / "generations")
     ap.add_argument("--vectors", type=Path, default=ROOT / "artifacts" / "vectors")
-    ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "factors")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="default artifacts/factors/<vector-arm>")
     args = ap.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    cfg = yaml.safe_load((ROOT / "configs" / "sprint.yaml").read_text())
+    cfg = cfg_mod.load(ROOT)
     seed = cfg["seed"]
-    layers = cfg["planned"]["layers"]
-    op_layer = args.layer if args.layer is not None else layers[0]
-    probe_layer = args.probe_layer if args.probe_layer is not None else op_layer
+    policy = cfg_mod.injection_policy(cfg)
+    band_layers = cfg_mod.injection_layers(cfg)
+    norm_mode = cfg_mod.norm_mode(cfg)
+    arm = args.vector_arm or cfg_mod.vector_arms(cfg)[0]
+    if arm not in cfg_mod.ARMS:
+        raise SystemExit(f"--vector-arm {arm!r} is not one of {list(cfg_mod.ARMS)}")
+    probe_layer = (args.probe_layer if args.probe_layer is not None
+                   else cfg_mod.probe_layer(cfg))
     orders = cfg["planned"]["orders"]
     readout_layers = cfg["planned"]["readout_layers"]
     readout_primary = cfg["planned"]["f2_primary_layer"]
-    if args.strength is None:
-        args.strength = cfg["planned"]["operating_strength"]
+    strength = cfg_mod.operating_strength(cfg, args.strength)
+    if args.out is None:
+        args.out = ROOT / "artifacts" / "factors" / arm
+    args.out.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
 
@@ -77,13 +92,21 @@ def main() -> None:
     concepts = [c for c in selection["selected"]
                 if sweep_mod.shard_path(args.sweep, c).exists()]
     cache_layers = list(manifest["cache_layers"])
-    task = manifest["task"]
+    tasks = manifest["tasks"]
+    task_of = manifest["task_of"]
+    if arm not in manifest["arms"]:
+        raise SystemExit(
+            f"the sweep at {args.sweep} carries arms {manifest['arms']}, not "
+            f"{arm!r} -- re-run scripts/02_sweep.py with --arms {arm}")
 
     gen_records = []
     for path in sorted(args.gen.glob("gen_*.json")):
         gen_records.extend(json.loads(path.read_text()))
     if not gen_records:
         raise SystemExit("no generations found -- run scripts/03_generate.py first")
+    # keep this arm's injected generations and the shared controls
+    gen_records = [r for r in gen_records
+                   if r["condition"] != "injected" or r.get("arm") == arm]
 
     # ---------------------------------------------------------------- model
     import jlens
@@ -127,17 +150,24 @@ def main() -> None:
     concept_token_ids = {c: vec_mod.single_token_ids(tok, c) for c in concepts}
 
     # ------------------------------------------------- cells at the op point
+    # One arm's `injected` cells plus the shared controls. `cell_condition`
+    # downstream stays the three-value vocabulary G4, G5 and the figures
+    # already read -- the arm is recorded once, in factors_meta.json, rather
+    # than becoming a fourth condition every consumer has to learn.
     cell_key = {}
     cell_rows = []
     for concept in concepts:
         shard = np.load(sweep_mod.shard_path(args.sweep, concept), allow_pickle=False)
-        mask = ((shard["cell_layer"] == op_layer)
-                & (np.isclose(shard["cell_strength"], args.strength)))
+        mask = np.isclose(shard["cell_strength"], strength)
+        cell_arm = np.array([str(x) for x in shard["cell_arm"]])
         for order in orders:
             for condition in sweep_mod.CONDITIONS:
+                wanted_arm = (arm if condition == "injected"
+                              else sweep_mod.SHARED_ARM)
                 sel = (mask
                        & (np.array([str(x) for x in shard["cell_order"]]) == order)
-                       & (np.array([str(x) for x in shard["cell_condition"]]) == condition))
+                       & (np.array([str(x) for x in shard["cell_condition"]]) == condition)
+                       & (cell_arm == wanted_arm))
                 idx = np.flatnonzero(sel)
                 if idx.size == 0:
                     continue
@@ -145,14 +175,16 @@ def main() -> None:
                 cell_key[(concept, order, condition)] = len(cell_rows)
                 cell_rows.append({
                     "concept": concept, "order": order, "condition": condition,
+                    "task": str(shard["task"]),
                     "residuals": residuals,
                     "p_true": float(shard["p_true"][idx[0]]),
                     "p_false": float(shard["p_false"][idx[0]]),
                 })
     if not cell_rows:
         raise SystemExit(
-            f"no sweep cells at layer {op_layer} strength {args.strength}")
-    print(f"[cells] {len(cell_rows)} operating-point cells from shards")
+            f"no sweep cells for arm {arm!r} at strength {strength}")
+    print(f"[cells] {len(cell_rows)} operating-point cells from shards, "
+          f"arm {arm!r}")
 
     def ranks_from_residual(residual: torch.Tensor, concept: str, which_lens,
                             readout_layer: int, mode: str = "jacobian") -> float:
@@ -193,40 +225,57 @@ def main() -> None:
                 print(f"[readout] {i}/{len(cell_rows)}", file=sys.stderr)
 
     # ------------------------------------------------------ position control
-    vec_blob = torch.load(args.vectors / f"vectors_layer{op_layer}.pt",
-                          map_location="cpu", weights_only=False)
-    vecs = {w: v.to(device) for w, v in vec_blob["vectors"].items()}
-    randoms = vec_mod.matched_random_directions(vecs, seed + op_layer)
-    answer = manifest["prompt_meta"][orders[0]]["clean_task_answer"]
+    vectors_by_arm = {a: sweep_mod.load_arm(args.vectors, a, band_layers, device)
+                      for a in {arm, manifest["arms"][0]}}
+    randoms_by_layer = {
+        layer: vec_mod.matched_random_directions(
+            vectors_by_arm[manifest["arms"][0]][layer], seed + layer)
+        for layer in band_layers
+    }
+    prompt_cache, answers, _meta = sweep_mod.build_prompt_cache(
+        model, hf_model, tok, orders, tasks, band_layers)
 
     pos_ranks = {(l, p): np.full(len(cell_rows), np.nan)
                  for l in readout_layers for p in ("report", "injection", "random")}
     for order in orders:
-        ids, positions, _ = sweep_mod.sweep_prompt(
-            model, tok, order, task, answer, args.inject_width,
-            args.inject_tail_offset)
-        seq_len = int(ids.shape[1])
-        median_norm = inject.median_residual_norm(model, ids, op_layer, positions)
-        # a position OUTSIDE the injected span, for the position control
-        first_injected = int(positions[0])
-        rand_pos = int(rng.integers(0, max(1, first_injected)))
-        for condition in sweep_mod.CONDITIONS:
-            members = [c for c in concepts if (c, order, condition) in cell_key]
-            for begin in range(0, len(members), args.batch):
-                chunk = members[begin:begin + args.batch]
+        for task, members_all in sweep_mod.task_groups(
+                concepts, task_of, args.batch):
+            ids, positions, clean_norms = prompt_cache[(order, task)]
+            seq_len = int(ids.shape[1])
+            # A control position OUTSIDE the injected span. It used to be drawn
+            # from [0, first_injected) only -- the system-prompt prefix, which
+            # is the same tokens in every trial and sits BEFORE the injection
+            # in causal order, so it could not have carried the concept even in
+            # principle. Drawing from every non-injected, non-report position
+            # includes the tokens after the span, where leakage would actually
+            # show up, and makes the control a test rather than a formality.
+            injected = set(int(p) for p in positions)
+            candidates = [p for p in range(seq_len)
+                          if p not in injected and p != seq_len - 1]
+            if not candidates:
+                raise SystemExit(
+                    f"no non-injected, non-report position in a {seq_len}-token "
+                    f"prompt: the all_user span covers everything")
+            rand_pos = int(candidates[rng.integers(0, len(candidates))])
+            for condition in sweep_mod.CONDITIONS:
+                chunk = [c for c in members_all
+                         if (c, order, condition) in cell_key]
+                if not chunk:
+                    continue
                 batch_ids = ids.expand(len(chunk), -1).contiguous()
                 if condition == "control_zero":
-                    source, alpha_rel = vecs, 0.0
+                    source, alpha_rel = vectors_by_arm[arm], 0.0
                 elif condition == "control_random":
-                    source, alpha_rel = randoms, args.strength
+                    source, alpha_rel = randoms_by_layer, strength
                 else:
-                    source, alpha_rel = vecs, args.strength
-                stacked = torch.stack([source[c] for c in chunk]).to(device)
-                alpha = torch.full((len(chunk),), alpha_rel * median_norm,
-                                   device=device)
-                result = inject.injected_prefill(
-                    model, batch_ids, op_layer, stacked, alpha, positions,
-                    record_layers=readout_layers, record_positions=slice(None))
+                    source, alpha_rel = vectors_by_arm[arm], strength
+                stacked = {l: torch.stack([source[l][c] for c in chunk]).to(device)
+                           for l in band_layers}
+                alpha = torch.full((len(chunk),), alpha_rel, device=device)
+                result = band_inject.injected_prefill_band(
+                    model, batch_ids, band_layers, stacked, alpha, positions,
+                    record_layers=readout_layers, record_positions=slice(None),
+                    norm_mode=norm_mode, clean_norms=clean_norms)
                 with torch.inference_mode():
                     for readout_layer in readout_layers:
                         full = result["residuals"][readout_layer]
@@ -243,7 +292,7 @@ def main() -> None:
 
     # ------------------------------------------------------------- trials
     trial_cell, trial_sample, trial_ident, trial_parse = [], [], [], []
-    trial_concept, trial_order, trial_condition = [], [], []
+    trial_concept, trial_order, trial_condition, trial_task = [], [], [], []
     dropped = 0
     for rec in gen_records:
         key = (rec["concept"], rec["order"], rec["condition"])
@@ -257,11 +306,14 @@ def main() -> None:
         trial_concept.append(rec["concept"])
         trial_order.append(rec["order"])
         trial_condition.append(rec["condition"])
+        trial_task.append(rec.get("task", ""))
 
     payload = {
         "cell_concept": np.array([r["concept"] for r in cell_rows]),
         "cell_order": np.array([r["order"] for r in cell_rows]),
         "cell_condition": np.array([r["condition"] for r in cell_rows]),
+        "cell_task": np.array([r["task"] for r in cell_rows]),
+        "trial_task": np.array(trial_task),
         "cell_p_true": np.array([r["p_true"] for r in cell_rows]),
         "cell_features": np.stack([
             r["residuals"][cache_layers.index(probe_layer)] for r in cell_rows]),
@@ -283,14 +335,21 @@ def main() -> None:
     np.savez(args.out / "factors_input.npz", **payload)
 
     meta = {
-        "op_layer": op_layer, "strength": args.strength,
+        "vector_arm": arm,
+        "injection_policy": policy, "band_layers": band_layers,
+        "norm_mode": norm_mode,
+        # kept for the consumers that print an injection site; under the band
+        # there is no single one, so this is the band's end -- the same layer
+        # f1 is probed at.
+        "op_layer": band_layers[-1], "strength": strength,
         "probe_layer": probe_layer, "readout_layers": readout_layers,
-        "readout_primary": readout_primary, "injection_layers": layers,
+        "readout_primary": readout_primary, "injection_layers": band_layers,
         "orders": orders, "conditions": list(sweep_mod.CONDITIONS),
         "n_cells": len(cell_rows), "n_trials": len(trial_cell),
         "dropped_generations": dropped,
         "r_lens_used": bool(r_lens), "r_lens_error": r_lens_error,
-        "task": task, "seed": seed, "wall_s": time.time() - t0,
+        "tasks": tasks, "task_of": task_of,
+        "seed": seed, "wall_s": time.time() - t0,
     }
     (args.out / "factors_meta.json").write_text(json.dumps(meta, indent=1))
     print(f"[done] {len(cell_rows)} cells, {len(trial_cell)} trials, "

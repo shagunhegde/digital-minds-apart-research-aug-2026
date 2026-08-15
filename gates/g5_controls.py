@@ -62,12 +62,17 @@ def permutation_p(a: np.ndarray, b: np.ndarray, n_perm: int, seed: int) -> float
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--artifacts", type=Path, default=ROOT / "artifacts")
+    ap.add_argument("--arm", type=str, default="concept",
+                    help="which vector arm's cascade to audit; 04_factors\nwrites one factors/<arm>/ per arm")
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--fpr", type=float, default=0.05)
     ap.add_argument("--n-perm", type=int, default=2000)
     ap.add_argument("--n-boot", type=int, default=2000)
-    ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "g5")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="default artifacts/g5/<arm>")
     args = ap.parse_args()
+    if args.out is None:
+        args.out = ROOT / "artifacts" / "g5" / args.arm
     args.out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
 
@@ -75,9 +80,10 @@ def main() -> None:
     g1 = maybe(A / "g1" / "g1_ranks.npz")
     g2 = maybe(A / "g2" / "g2.npz")
     g3 = maybe(A / "g3" / "g3.npz")
-    fx = maybe(A / "factors" / "factors_input.npz")
-    fx_meta = (json.loads((A / "factors" / "factors_meta.json").read_text())
-               if (A / "factors" / "factors_meta.json").exists() else None)
+    fx = maybe(A / "factors" / args.arm / "factors_input.npz")
+    fx_meta_path = A / "factors" / args.arm / "factors_meta.json"
+    fx_meta = (json.loads(fx_meta_path.read_text())
+               if fx_meta_path.exists() else None)
     prereg = json.loads((ROOT / "configs" / "prereg.json").read_text())
 
     rows = []          # the one control table
@@ -155,6 +161,18 @@ def main() -> None:
                            permutation_p(pooled_i, pooled_r, args.n_perm, 2)))
             nulls.append(("G3 random direction is not detected",
                           float((pooled_r > 0.5).mean()), pooled_r.size))
+            # per arm as well as pooled: the pooled row mixes the headline
+            # object with Garcia's own, which is the comparison rather than a
+            # quantity to average over
+            arms_seen = sorted({k.split("_")[1] for k in inj_keys
+                                if len(k.split("_")) > 2})
+            for arm in arms_seen if len(arms_seen) > 1 else []:
+                arr = np.concatenate([g3[k].ravel() for k in inj_keys
+                                      if k.split("_")[1] == arm])
+                iv = stats.wilson(int((arr > 0.5).sum()), arr.size)
+                label = f"injected detection rate, arm {arm}"
+                rows.append(("G3", label, fmt(iv), arr.size))
+                w(f"    {'G3':<5}{label:<38}{fmt(iv):>26}{arr.size:>8}")
 
     # factors-derived arms
     cascade_ctx = None

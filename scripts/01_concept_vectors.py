@@ -5,6 +5,25 @@ only the stage in flight.
 
     python scripts/01_concept_vectors.py [--per-tier 20] [--pilot-strength 0.09]
 
+TWO ARMS, EXTRACTED PER BAND LAYER.
+
+  concept    activation("Tell me about X") - mean(baseline), at EVERY band
+             layer, from one forward per word. Injecting a layer-27 vector at
+             layer 38 is a cross-layer mismatch, and under a 17-layer band 16
+             of the 17 injections would be that mismatch; per-layer extraction
+             removes it and costs nothing, because the 17 layers come off the
+             same forward.
+  jlens_row  (W_U[t] @ J_l) in layer-l space -- the exact object Garcia
+             injects. The positive control: if this arm reproduces his
+             steering and report rates, the harness is validated end to end.
+             Needs the fitted lens, so it is behind --arms and skipped if the
+             lens will not load.
+
+The pilot that stratifies the pool now runs under the BAND too. The previous
+pilot scored 315 concepts at one layer, where the whole ladder was ~20x too
+weak: every rate sat on floor noise, so the 60 it selected were effectively
+random. Re-running it here is P0.5 step 2 of the change order.
+
 STRATIFICATION -- READ THIS.
 
 The build spec stratifies the 60 concepts by Macar's per-concept Gemma
@@ -39,15 +58,16 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import torch
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import inject  # noqa: E402
+import band_inject  # noqa: E402
+import config as cfg_mod  # noqa: E402
+import lens as lens_mod  # noqa: E402
 import prompts as prompt_mod  # noqa: E402
+import sweep as sweep_mod  # noqa: E402
 import vectors as vec_mod  # noqa: E402
 
 
@@ -80,22 +100,23 @@ def main() -> None:
     ap.add_argument("--per-tier", type=int, default=20)
     ap.add_argument("--pilot-strength", type=float, default=None,
                     help="default: planned.operating_strength from sprint.yaml")
-    ap.add_argument("--pilot-layer", type=int, default=None)
     ap.add_argument("--batch", type=int, default=8)
-    ap.add_argument("--inject-width", type=int, default=8)
-    ap.add_argument("--inject-tail-offset", type=int, default=4)
+    ap.add_argument("--arms", type=str, default=None,
+                    help="comma-separated; default planned.vector_arms")
     ap.add_argument("--stratify-file", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "vectors")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    cfg = yaml.safe_load((ROOT / "configs" / "sprint.yaml").read_text())
+    cfg = cfg_mod.load(ROOT)
     seed = cfg["seed"]
-    layers = cfg["planned"]["layers"]
-    pilot_layer = args.pilot_layer if args.pilot_layer is not None else layers[0]
-    if args.pilot_strength is None:
-        args.pilot_strength = cfg["planned"]["operating_strength"]
+    layers = cfg_mod.injection_layers(cfg)
+    policy = cfg_mod.injection_policy(cfg)
+    norm_mode = cfg_mod.norm_mode(cfg)
+    arms = ([a.strip() for a in args.arms.split(",") if a.strip()]
+            if args.arms else cfg_mod.vector_arms(cfg))
+    pilot_strength = cfg_mod.operating_strength(cfg, args.pilot_strength)
     torch.manual_seed(seed)
 
     model, hf_model, tok = load_model(cfg)
@@ -118,7 +139,9 @@ def main() -> None:
         ROOT / "configs" / "baseline_words.json")
 
     # ------------------------------------------------------------- pilot
+    tasks = prompt_mod.TASK_PROMPTS[:cfg["planned"].get("n_tasks", 10)]
     pilot_path = args.out / "pilot.json"
+    pool_vectors = None      # {layer: {word: vec}} for the whole survivor pool
     if args.stratify_file is not None:
         rates = json.loads(args.stratify_file.read_text())
         rates = {w: float(r) for w, r in rates.items() if w in concept_ids}
@@ -128,80 +151,151 @@ def main() -> None:
         rates, rate_source = payload["rates"], payload["source"]
         print(f"[pilot] resumed from {pilot_path}")
     else:
-        print(f"[pilot] scoring {len(survivors)} concepts at layer {pilot_layer}, "
-              f"alpha_rel={args.pilot_strength}")
-        vecs_pilot, _ = vec_mod.extract_concept_vectors(
-            model, tok, survivors, baseline_words, pilot_layer)
+        print(f"[pilot] scoring {len(survivors)} concepts under the {policy} "
+              f"({len(layers)} layers {layers[0]}-{layers[-1]}), "
+              f"alpha_rel={pilot_strength} per layer")
+        pool_vectors, _ = vec_mod.extract_concept_vectors_band(
+            model, tok, survivors, baseline_words, layers)
         yes_ids, no_ids = prompt_mod.boolean_token_ids(tok)
         yes_t = torch.as_tensor(yes_ids, device=device)
         no_t = torch.as_tensor(no_ids, device=device)
 
-        base_ids, positions, _ = prompt_mod.prepare(
-            model, tok, prompt_mod.detect_messages(), prefill=True,
-            enable_thinking=cfg["planned"]["enable_thinking"])
-        median_norm = inject.median_residual_norm(
-            model, base_ids, pilot_layer, positions)
-
-        scores = {}
-        for begin in range(0, len(survivors), args.batch):
-            chunk = survivors[begin:begin + args.batch]
+        # The pilot gets the same 10-way task spread the sweep does. Selecting
+        # 60 concepts on their response to one fixed prompt makes the whole
+        # selection a property of that prompt; this is the cheapest place to
+        # stop that, since the batching is by task group either way.
+        task_of = sweep_mod.assign_tasks(survivors, tasks)
+        prompt_cache = {}
+        scores, done = {}, 0
+        for task, chunk in sweep_mod.task_groups(survivors, task_of, args.batch):
+            if task not in prompt_cache:
+                prompt_cache[task] = prompt_mod.prepare(
+                    model, tok, prompt_mod.detect_messages(task), prefill=True,
+                    enable_thinking=cfg["planned"]["enable_thinking"])
+            base_ids, positions, _ = prompt_cache[task]
             batch = base_ids.expand(len(chunk), -1).contiguous()
-            result = inject.injected_prefill(
-                model, batch, pilot_layer,
-                torch.stack([vecs_pilot[w] for w in chunk]).to(device),
-                torch.full((len(chunk),), args.pilot_strength * median_norm,
-                           device=device),
-                positions, record_layers=[pilot_layer], record_positions=positions)
+            result = band_inject.injected_prefill_band(
+                model, batch, layers,
+                {l: torch.stack([pool_vectors[l][w] for w in chunk]).to(device)
+                 for l in layers},
+                torch.full((len(chunk),), pilot_strength, device=device),
+                positions, record_layers=[layers[-1]], record_positions=[-1],
+                norm_mode=norm_mode)
             probs = torch.softmax(result["logits"], dim=-1)
             p_yes = probs.index_select(-1, yes_t).sum(-1)
             p_no = probs.index_select(-1, no_t).sum(-1)
             ratio = (p_yes / (p_yes + p_no)).cpu().numpy()
             for word, value in zip(chunk, ratio):
                 scores[word] = float(value)
-            if begin % (args.batch * 10) == 0:
-                print(f"       {begin + len(chunk)}/{len(survivors)}")
+            done += len(chunk)
+            if done % (args.batch * 10) < args.batch:
+                print(f"       {done}/{len(survivors)}")
         rates = scores
         rate_source = (
-            f"own pilot, layer {pilot_layer}, alpha_rel {args.pilot_strength}, "
+            f"own pilot, {policy} over layers {layers[0]}-{layers[-1]}, "
+            f"alpha_rel {pilot_strength} per layer, norm_mode {norm_mode}, "
+            f"{len(tasks)} tasks round-robin, "
             f"P(yes)/(P(yes)+P(no)) from next-token logits")
         pilot_path.write_text(json.dumps({
-            "source": rate_source, "layer": pilot_layer,
-            "strength": args.pilot_strength, "median_norm": median_norm,
-            "n_scored": len(rates), "rates": rates}, indent=1))
+            "source": rate_source, "injection_policy": policy,
+            "band_layers": layers, "strength": pilot_strength,
+            "norm_mode": norm_mode, "n_tasks": len(tasks),
+            "task_of": task_of, "n_scored": len(rates), "rates": rates},
+            indent=1))
         print(f"[pilot] wrote {pilot_path}")
-        del vecs_pilot
-        torch.cuda.empty_cache()
 
     # --------------------------------------------------------- selection
     selected, strat_meta = vec_mod.stratify_by_rate(
         [w for w in survivors if w in rates], rates, args.per_tier, seed)
     print(f"[select] {len(selected)} concepts  {strat_meta}")
 
-    # --------------------------------------------------------- extraction
-    for layer in layers:
-        path = args.out / f"vectors_layer{layer}.pt"
-        if path.exists():
+    # -------------------------------------------- arm A: concept vectors
+    def arm_path(arm: str, layer: int) -> Path:
+        stem = "vectors" if arm == "concept" else "jlens_rows"
+        return args.out / f"{stem}_layer{layer}.pt"
+
+    def on_disk(arm: str) -> bool:
+        """Whether every band layer of `arm` is already saved for THIS 60.
+
+        Resuming on file existence alone is not enough: these vectors are for
+        whichever concepts the previous selection picked. If the selection
+        changed -- and after the re-pilot it has -- silently keeping them
+        would sweep the wrong concept set with no error anywhere.
+        """
+        for layer in layers:
+            path = arm_path(arm, layer)
+            if not path.exists():
+                return False
             saved = torch.load(path, map_location="cpu", weights_only=False)
-            if list(saved.get("concepts", [])) == list(selected):
-                print(f"[extract] layer {layer} already on disk, skipping")
-                continue
-            # Resuming on file existence alone is not enough: these vectors are
-            # for whichever concepts the previous selection picked. If the
-            # selection changed, silently keeping them would sweep the wrong
-            # concept set with no error anywhere.
-            print(f"[extract] layer {layer} on disk but for a different "
-                  f"selection ({len(saved.get('concepts', []))} concepts) -- "
-                  f"re-extracting")
-        vecs, baseline_mean = vec_mod.extract_concept_vectors(
-            model, tok, selected, baseline_words, layer)
-        torch.save({
-            "layer": layer,
-            "concepts": selected,
-            "vectors": {w: v.cpu() for w, v in vecs.items()},
-            "baseline_mean": baseline_mean.cpu(),
-            "model_revision": cfg["model"]["revision"],
-        }, path)
-        print(f"[extract] wrote {path}")
+            if list(saved.get("concepts", [])) != list(selected):
+                print(f"[extract] {arm} L{layer} on disk but for a different "
+                      f"selection ({len(saved.get('concepts', []))} concepts)"
+                      f" -- re-extracting the arm")
+                return False
+        return True
+
+    if "concept" in arms:
+        if on_disk("concept"):
+            print(f"[extract] concept arm already on disk for all {len(layers)} "
+                  f"band layers, skipping")
+        else:
+            if pool_vectors is not None:
+                # the pilot already extracted the whole pool at every band
+                # layer; the 60 are a subset of it, so re-extracting would be
+                # 160 forwards for nothing
+                vecs = {l: {w: pool_vectors[l][w] for w in selected} for l in layers}
+                means = None
+                print("[extract] concept arm subset from the pilot extraction")
+            else:
+                vecs, means = vec_mod.extract_concept_vectors_band(
+                    model, tok, selected, baseline_words, layers)
+            for layer in layers:
+                torch.save({
+                    "arm": "concept",
+                    "layer": layer,
+                    "concepts": selected,
+                    "vectors": {w: v.cpu() for w, v in vecs[layer].items()},
+                    "baseline_mean": (means[layer].cpu() if means else None),
+                    "model_revision": cfg["model"]["revision"],
+                }, arm_path("concept", layer))
+            print(f"[extract] wrote concept vectors for {len(layers)} band layers")
+    del pool_vectors
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # ------------------------------------------- arm B: J-lens row vectors
+    jlens_error = None
+    if "jlens_row" in arms:
+        if on_disk("jlens_row"):
+            print("[extract] jlens_row arm already on disk, skipping")
+        else:
+            try:
+                lens = lens_mod.load_lens(
+                    cfg["lens"]["repo"], cfg["lens"]["filename"],
+                    cfg["lens"]["revision"], device=device, layers=layers)
+                rows = band_inject.rows_by_layer(
+                    lens, model, {w: concept_ids[w] for w in selected}, layers)
+                for layer in layers:
+                    torch.save({
+                        "arm": "jlens_row",
+                        "layer": layer,
+                        "concepts": selected,
+                        "vectors": {w: v.cpu() for w, v in rows[layer].items()},
+                        "fold_final_norm": True,
+                        "lens": {"repo": cfg["lens"]["repo"],
+                                 "filename": cfg["lens"]["filename"],
+                                 "revision": cfg["lens"]["revision"]},
+                        "model_revision": cfg["model"]["revision"],
+                    }, arm_path("jlens_row", layer))
+                print(f"[extract] wrote J-lens rows for {len(layers)} band layers")
+                del lens, rows
+            except Exception as exc:  # noqa: BLE001
+                # The lens is 6.6 GB resident and this arm is a positive
+                # control, not the headline. Report the failure and let the
+                # concept arm proceed rather than losing both.
+                jlens_error = f"{type(exc).__name__}: {exc}"
+                print(f"[extract] jlens_row arm unavailable: {jlens_error}",
+                      file=sys.stderr)
 
     selection = {
         "selected": selected,
@@ -212,7 +306,13 @@ def main() -> None:
         "pool_meta": pool_meta,
         "baseline_diag": baseline_diag,
         "concept_ids": {w: concept_ids[w] for w in selected},
+        "injection_policy": policy,
+        "band_layers": layers,
         "layers": layers,
+        "arms": arms,
+        "jlens_row_error": jlens_error,
+        "pilot_strength": pilot_strength,
+        "norm_mode": norm_mode,
         "seed": seed,
         "wall_s": time.time() - t0,
     }

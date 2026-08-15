@@ -42,13 +42,21 @@ def concept_bootstrap(concepts, fn, n_boot=2000, seed=0) -> stats.Interval:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--factors", type=Path, default=ROOT / "artifacts" / "factors")
+    ap.add_argument("--arm", type=str, default="concept",
+                    help="vector arm; selects artifacts/factors/<arm>")
+    ap.add_argument("--factors", type=Path, default=None,
+                    help="default artifacts/factors/<arm>")
     ap.add_argument("--fpr", type=float, default=0.05)
     ap.add_argument("--probe-folds", type=int, default=5)
     ap.add_argument("--k", type=int, default=10, help="headline k")
     ap.add_argument("--n-boot", type=int, default=2000)
-    ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "g4")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="default artifacts/g4/<arm>")
     args = ap.parse_args()
+    if args.factors is None:
+        args.factors = ROOT / "artifacts" / "factors" / args.arm
+    if args.out is None:
+        args.out = ROOT / "artifacts" / "g4" / args.arm
     args.out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
 
@@ -64,6 +72,12 @@ def main() -> None:
     # readout as ~25x better at 59 than at the injection layers.
     readout_primary = meta.get("readout_primary", op_layer)
     orders = meta["orders"]
+    # Under the band policy there is no single injection layer, so every line
+    # that used to name one names the band instead.
+    band = meta.get("band_layers") or []
+    site = (f"band {band[0]}-{band[-1]} ({len(band)} layers)" if len(band) > 1
+            else f"layer {op_layer}")
+    arm = meta.get("vector_arm", "concept")
 
     cell_concept = blob["cell_concept"].astype(str)
     cell_condition = blob["cell_condition"].astype(str)
@@ -124,7 +138,9 @@ def main() -> None:
     w(f"{RULE}\n================ GATE G4 : three-factor decomposition ================")
 
     w("\nCONFIG")
-    w(f"  injection layer          {op_layer}, alpha_rel {meta['strength']}")
+    w(f"  injection site           {site}, alpha_rel {meta['strength']} per layer")
+    w(f"  vector arm               {arm}"
+      f"   (norm_mode {meta.get('norm_mode', 'live')})")
     w(f"  f2 readout layer         {readout_primary}   <- not the injection layer")
     w(f"  probe layer              {meta['probe_layer']}")
     w(f"  readout layers swept     {readout_layers}")
@@ -261,7 +277,7 @@ def main() -> None:
           f"{row['observed_cascade_rate']:>10.4f}{f2_n:>10.4f}")
     w("")
     w(f"  layer sensitivity of f2 at k={args.k} (readout layer varies, injection"
-      f" stays at {op_layer})")
+      f" stays at {site})")
     w(f"    {'layer':>6}{'f2':>9}{'median rank':>13}{'null f2':>10}")
     for layer in readout_layers:
         key = f"cached_rank_L{layer}"

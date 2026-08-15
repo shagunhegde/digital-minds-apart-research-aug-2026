@@ -82,14 +82,27 @@ code:
     commit: e03ee9711e2b8b7116f173aff32de38a3a463c51
 
 planned:
-  # Garcia's band prior: layers 24-40 outperform 41-57 on this model.
+  # -------------------------------------------------------------- policy
+  # Decided 2026-08-15, after two runs bracketed the operating regime without
+  # testing it.
   #
-  # Decided 2026-08-14: sample only full_attention blocks. layer_types puts
-  # full_attention at indices == 3 (mod 4), so inside the 24-40 band the
-  # candidates are 27, 31, 35, 39; the first three are taken. This keeps the
-  # band prior intact at no cost while restricting the sweep to blocks where
-  # the KV-cache half of Garcia's prefill-only argument holds literally.
-  # The other 48 blocks are linear_attention and carry recurrent state.
+  # Garcia's `intervention_layer_policy: workspace_band` registers ONE
+  # intervention per layer across workspace_layers 24-40 -- seventeen
+  # simultaneous additions, each scaled by the live median residual norm at
+  # that layer. Run 2 copied his per-layer strengths but injected at a single
+  # layer, which is ~17x weaker in cumulative displacement (23x measured on a
+  # toy stack, because live norms compound). That is why the dose-response sat
+  # at 1e-4, G3 detection was 0.000 in every cell, and the tiers collapsed.
+  #
+  # The fix is not a bigger single-layer alpha. It is his policy verbatim,
+  # which restores signal AND makes the order-effect contrast against his
+  # 322 -> 0 result apples-to-apples.
+  injection_policy: workspace_band
+  band_layers: [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
+
+  # Superseded by band_layers, kept because G2's layer scan and the
+  # single-layer ablation still take a layer list. Under
+  # injection_policy: workspace_band nothing in the sweep reads this.
   layers: [27, 31, 35]
   layer_block_type: full_attention
 
@@ -111,6 +124,12 @@ planned:
   # assumed away.
   readout_layers: [27, 31, 35, 40, 59]
   f2_primary_layer: 59
+  # Where f1's residual is read. 40 is the band's last layer and the report
+  # position's own depth -- the deepest point the injection is still being
+  # written to. Reading f1 at 27 under a 24-40 band would ask whether the
+  # first quarter of the intervention is detectable, not whether the
+  # intervention is.
+  probe_layer: 40
   # alpha_rel is a multiple of the median clean residual L2 norm at the
   # injection positions, cached per layer. Never pass a raw alpha.
   #
@@ -127,13 +146,41 @@ planned:
   # probe answer 'apple' identically at alpha 0 and alpha 8, and G3 saw
   # identification 0.000 in every cell. The response is non-monotonic and the
   # whole ladder sat far past the peak.
+  #
+  # These are PER-LAYER strengths, and under the band policy all 17 layers
+  # get one each. Run 2's mistake was reading them as a total.
   strengths_rel: [0.02, 0.05, 0.09, 0.14]
+  # Used only if 0.14 is still sub-threshold in the G2b report.
+  strengths_extension: [0.20, 0.28]
   strengths_source: "Garcia qwen3.6-27b config: strength x additive_norm_multiplier(2.0)"
+
+  # Two arms over one grid.
+  #   concept   -- activation("Tell me about X") - baseline mean, per band
+  #                layer. The headline arm.
+  #   jlens_row -- (W_U[t] @ J_l) in layer-l space: the exact object Garcia
+  #                injects. Positive control and ceiling.
+  # At matched ||delta|| the pair is a causal manipulation of J-space loading:
+  # the concept vector carries ~6-7% of its variance in J-space, the J-lens
+  # row is ~pure J-space. jlens_row reported and concept not, at equal norm,
+  # is the verbalizability factor on open weights.
+  vector_arms: [concept, jlens_row]
+
+  # live: scale by the median residual norm read INSIDE the hook, after
+  # earlier band layers have already fired. This is Garcia's protocol and the
+  # reason the band compounds. clean: scale by the unperturbed norm, cached
+  # per layer -- an ablation, not the protocol.
+  norm_mode: live
+
   # The single operating point for generation, the pilot, and the factor pass.
   # Every script defaults to this rather than carrying its own number -- a
   # hard-coded 4.0 survived the ladder change in nine places and would have
   # silently reintroduced the 29x-too-strong setting on any default run.
-  operating_strength: 0.09
+  #
+  # null until a human reads the G2b report and writes the choice back here.
+  # src/config.py::operating_strength refuses to guess, so a script run before
+  # that gate says so instead of running at a stale number.
+  operating_strength: null
+  operating_strength_source: "chosen at G2b; record the report path here with it"
 
   # Garcia's position_policies: [all_user] -- inject over EVERY user-turn
   # token. Our 8-token tail window landed in the assistant prefill and the
@@ -147,7 +194,22 @@ planned:
   # These names are what appear in every report and shard. src/sweep.py holds
   # the authoritative tuple (CONDITIONS); this list must match it exactly.
   conditions: [injected, control_zero, control_random]
+  # `injected` cells carry a vector_arm; the two controls are shared across
+  # arms (alpha=0 adds exactly zero whatever the vector is, and one random
+  # direction set is the null for both). So the per-concept grid is
+  # 4 strengths x 2 orders x (2 arms + zero + random) = 32 cells, and the
+  # sweep is 60 x 32 = 1,920.
+
   n_concepts: 60                                 # 20 high / 20 mid / 20 zero
+  # Trial diversity. With one fixed task every control_zero cell is the SAME
+  # forward pass, so FPR had no variance and the whole result was hostage to
+  # "name a colour of the sky" -- G3's report flags this itself. Concept i
+  # takes prompts.TASK_PROMPTS[i % n_tasks] in ALL of its cells, so every
+  # channel (injected, zero, random) gets the same 10-way task spread, and
+  # concepts still batch cleanly because a batch is one task group. Garcia
+  # used 20 factual questions; 10 is the sprint version, and the concept->task
+  # map is recorded in the sweep manifest.
+  n_tasks: 10
   readout_k: [1, 5, 10, 25, 50]                  # f2 is a curve, not a scalar
   generation:
     max_new_tokens: 96

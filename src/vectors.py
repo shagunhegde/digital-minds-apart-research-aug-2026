@@ -75,18 +75,71 @@ def extract_concept_vectors(
 
     Returns ({concept: [d_model]}, baseline_mean [d_model]).
     """
-    with torch.inference_mode():
-        baseline = torch.stack([
-            word_residual(model, tokenizer, word, layer) for word in baseline_words
-        ])
-        baseline_mean = baseline.mean(dim=0)
-        vectors = {
-            concept: word_residual(model, tokenizer, concept, layer) - baseline_mean
-            for concept in concepts
+    vectors, means = extract_concept_vectors_band(
+        model, tokenizer, concepts, baseline_words, [layer])
+    return vectors[layer], means[layer]
+
+
+def word_residuals(model, tokenizer, word: str, layers: list[int]) -> dict[int, torch.Tensor]:
+    """Residual at the final prompt token for one word, at several layers.
+
+    One forward pass for the whole band. `word_residual` is this at a single
+    layer and is kept because the single-layer path is still what G2 and the
+    layer scan use.
+    """
+    rendered = tokenizer.apply_chat_template(
+        [{"role": "user", "content": TEMPLATE.format(word=word)}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    input_ids = model.encode(rendered)
+    with jlens.ActivationRecorder(model.layers, at=layers) as recorder:
+        model.forward(input_ids)
+        return {
+            layer: recorder.activations[layer][0, -1, :].detach().float().clone()
+            for layer in layers
         }
-    for concept, vector in vectors.items():
-        if not torch.isfinite(vector).all():
-            raise ValueError(f"non-finite concept vector for {concept!r}")
+
+
+def extract_concept_vectors_band(
+    model, tokenizer, concepts: list[str], baseline_words: list[str],
+    layers: list[int],
+) -> tuple[dict[int, dict[str, torch.Tensor]], dict[int, torch.Tensor]]:
+    """Concept vectors at EVERY layer in `layers`, from one pass per word.
+
+    Returns ({layer: {concept: [d_model]}}, {layer: baseline_mean}).
+
+    The band injects at 17 layers, and a concept vector extracted at layer 27
+    is not the layer-38 representation of that concept -- injecting it there is
+    a cross-layer mismatch that shows up as a weaker, blurrier intervention
+    with no error anywhere. Extracting per layer removes it, and costs nothing
+    extra: the 17 layers come off the SAME forward the single-layer version
+    already paid for, so 100 baselines + n concepts is 100 + n passes whether
+    the band is 1 layer wide or 17.
+    """
+    layers = sorted(set(int(l) for l in layers))
+    with torch.inference_mode():
+        baseline_sum = {layer: None for layer in layers}
+        for word in baseline_words:
+            residuals = word_residuals(model, tokenizer, word, layers)
+            for layer in layers:
+                baseline_sum[layer] = (
+                    residuals[layer] if baseline_sum[layer] is None
+                    else baseline_sum[layer] + residuals[layer])
+        n = len(baseline_words)
+        baseline_mean = {layer: baseline_sum[layer] / n for layer in layers}
+
+        vectors: dict[int, dict[str, torch.Tensor]] = {l: {} for l in layers}
+        for concept in concepts:
+            residuals = word_residuals(model, tokenizer, concept, layers)
+            for layer in layers:
+                vectors[layer][concept] = residuals[layer] - baseline_mean[layer]
+
+    for layer in layers:
+        for concept, vector in vectors[layer].items():
+            if not torch.isfinite(vector).all():
+                raise ValueError(
+                    f"non-finite concept vector for {concept!r} at layer {layer}")
     return vectors, baseline_mean
 
 

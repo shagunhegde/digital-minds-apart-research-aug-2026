@@ -1,9 +1,16 @@
 """The resumable sweep.
 
-Grid: 60 concepts x 3 layers x 4 strengths x 2 orders x 3 conditions = 4,320
+Grid: 60 concepts x 4 strengths x 2 orders x (2 arms + zero + random) = 1,920
 cells. One shard per concept, written atomically, skipped on restart.
 
-Two things here are not in the build spec and both are load-bearing.
+The layer dimension is gone: under `injection_policy: workspace_band` there is
+one intervention per layer across all 17 band layers at once, so "which layer"
+is no longer a coordinate of the grid. Two dimensions replaced it -- the
+vector arm (concept vs J-lens row, on `injected` cells only; the controls are
+shared) and the task, which is not a grid coordinate but a per-concept
+assignment.
+
+Four things here are not in the build spec and all four are load-bearing.
 
 **The report position has to be constructed, not assumed.** "Cache next-token
 logits at the report position" is unambiguous for report_then_task, where the
@@ -23,10 +30,23 @@ computed once per order, so the prefill is a constant and not a per-cell cost.
 **Zero-strength cells are computed once per batch, not once per cell.**
 alpha=0 adds exactly zero -- G2 measures this as the zero-strength identity
 invariant and reports it as 0.0 -- so the four strengths of a control_zero
-condition are bit-identical. Computing one and broadcasting is exact, not an
-approximation, and removes a third of the forward passes. It is done per
-(batch, layer, order) rather than once globally precisely so G4a still has a
-per-batch control statistic to test for temporal drift.
+condition are bit-identical, and so are the two arms of it. Computing one and
+broadcasting is exact, not an approximation. It is done per (batch, order)
+rather than once globally precisely so G4a still has a per-batch control
+statistic to test for temporal drift.
+
+**A batch is a task group, not an arbitrary slice of the concept list.**
+Every element of a batch shares one `input_ids`, which is what makes B
+concepts cost one forward. Once concept i takes task i % n_tasks, concepts
+that share a task are the only ones that can share a forward -- so the batches
+are the task groups (6 concepts each at 60 concepts and 10 tasks), and the
+prompt cache is keyed by (order, task): 20 entries rather than 2.
+
+**The strength passed to the band hook is alpha_REL, not alpha_abs.** The
+single-layer path multiplies by a cached clean median norm before the hook
+sees it. The band reads its own median live, inside each layer, after earlier
+band layers have fired -- that compounding is the policy. Passing an alpha_abs
+here would silently reinstate clean-norm scaling at 17 layers.
 """
 
 from __future__ import annotations
@@ -39,22 +59,60 @@ from pathlib import Path
 import numpy as np
 import torch
 
-import inject
+import band_inject
 import prompts as prompt_mod
 
 CONDITIONS = ("injected", "control_zero", "control_random")
 
+#: The arm label on cells that have no arm. Both controls are shared between
+#: the two vector arms -- alpha=0 adds exactly zero whatever the vector is,
+#: and one matched-norm random set is the null for both -- so they are run
+#: once and read by either arm's cascade.
+SHARED_ARM = "shared"
 
-def build_cells(layers, strengths, orders) -> list[dict]:
-    """Every (layer, strength, order, condition) a single concept needs."""
+
+def build_cells(strengths, orders, arms) -> list[dict]:
+    """Every (strength, order, condition, arm) a single concept needs.
+
+    `injected` cells are per arm; the controls are shared. At 4 strengths, 2
+    orders and 2 arms that is 4 x 2 x (2 + 1 + 1) = 32 cells per concept.
+    """
     cells = []
-    for layer in layers:
-        for order in orders:
-            for condition in CONDITIONS:
+    for order in orders:
+        for condition in CONDITIONS:
+            cell_arms = list(arms) if condition == "injected" else [SHARED_ARM]
+            for arm in cell_arms:
                 for strength in strengths:
-                    cells.append({"layer": int(layer), "strength": float(strength),
-                                  "order": order, "condition": condition})
+                    cells.append({"strength": float(strength), "order": order,
+                                  "condition": condition, "arm": arm})
     return cells
+
+
+def assign_tasks(concepts: list[str], tasks: list[str]) -> dict[str, str]:
+    """Concept i takes task i % len(tasks), in every one of its cells.
+
+    Round-robin rather than random so the map is reproducible from the concept
+    list alone, and so each task carries the same number of concepts. Holding
+    the task fixed WITHIN a concept is what keeps the injected and control
+    cells of that concept paired: the contrast is the injection, not the task.
+    """
+    if not tasks:
+        raise ValueError("no task prompts to assign")
+    return {c: tasks[i % len(tasks)] for i, c in enumerate(concepts)}
+
+
+def task_groups(concepts: list[str], task_of: dict[str, str],
+                batch: int) -> list[tuple[str, list[str]]]:
+    """[(task, [concepts])], chunked to `batch`. A batch shares one prompt."""
+    grouped: dict[str, list[str]] = {}
+    for concept in concepts:
+        grouped.setdefault(task_of[concept], []).append(concept)
+    out = []
+    for task in sorted(grouped):
+        members = grouped[task]
+        for begin in range(0, len(members), batch):
+            out.append((task, members[begin:begin + batch]))
+    return out
 
 
 def protocol_for(order: str) -> str:
@@ -65,10 +123,12 @@ def protocol_for(order: str) -> str:
 
 
 def clean_task_answer(model, hf_model, tokenizer, task: str, max_new_tokens: int = 12) -> str:
-    """The model's own greedy answer to the fixed task, used in the prefill.
+    """The model's own greedy answer to one task, used in the prefill.
 
-    Computed once per order so the task-first prefill is a constant. Kept short
-    and stripped of quotes so it can sit inside a JSON string literal.
+    Computed once per task -- ten greedy 12-token generations for the whole
+    run -- so the task-first prefill is a constant per task and not a per-cell
+    cost. Kept short and stripped of quotes so it can sit inside a JSON string
+    literal.
     """
     messages = [{"role": "user", "content": task}]
     rendered = tokenizer.apply_chat_template(
@@ -81,8 +141,7 @@ def clean_task_answer(model, hf_model, tokenizer, task: str, max_new_tokens: int
     return text.strip().split("\n")[0].replace('"', "'").strip()[:80]
 
 
-def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str,
-                 inject_width: int, tail_offset: int):
+def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str):
     """Prompt whose next token is the detection boolean, in either order.
 
     Returns (input_ids [1, seq], injection positions slice, rendered text).
@@ -105,9 +164,66 @@ def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str,
     return ids, positions, rendered
 
 
+def build_prompt_cache(model, hf_model, tokenizer, orders, tasks, band_layers):
+    """{(order, task): (ids, positions, clean_norms)}, plus {task: answer}, meta.
+
+    Twenty entries at 2 orders and 10 tasks, built once and shared by the
+    sweep, the generation pass and the factor pass -- if those three built
+    their own the "same trial" that f1, f2 and f3 are read off would not be
+    the same prompt, and cascade_residual would be measuring the mismatch.
+
+    `clean_norms` is the per-band-layer median clean residual norm at the
+    injection positions. Under Garcia's live scaling the hook does not use it;
+    it is the denominator the reports divide realised displacement by, and the
+    scale the `norm_mode="clean"` ablation runs at.
+    """
+    answers = {task: clean_task_answer(model, hf_model, tokenizer, task)
+               for task in tasks}
+    cache, meta = {}, {}
+    for task in tasks:
+        for order in orders:
+            ids, positions, rendered = sweep_prompt(
+                model, tokenizer, order, task, answers[task])
+            norms = band_inject.band_median_norms(
+                model, ids, band_layers, positions)
+            cache[(order, task)] = (ids, positions, norms)
+            meta[f"{order}|{task}"] = {
+                "task": task,
+                "order": order,
+                "clean_task_answer": answers[task],
+                "seq_len": int(ids.shape[1]),
+                "n_injected_positions": len(positions),
+                "position_span": [int(positions[0]), int(positions[-1]) + 1],
+                "clean_band_norms": norms,
+                "rendered_tail": rendered[-220:],
+            }
+    return cache, answers, meta
+
+
 def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:
     """Re-exported from prompts, which owns the frame that forces them."""
     return prompt_mod.boolean_token_ids(tokenizer)
+
+
+def load_arm(vectors_dir: Path, arm: str, layers: list[int], device):
+    """{layer: {concept: [d_model]}} for one arm, as 01_concept_vectors wrote it.
+
+    Arm A lives in `vectors_layer{L}.pt` and arm B in `jlens_rows_layer{L}.pt`;
+    both carry the same {arm, layer, concepts, vectors} shape, so everything
+    downstream treats them interchangeably and the arm is a label rather than a
+    code path.
+    """
+    stem = "vectors" if arm == "concept" else "jlens_rows"
+    out = {}
+    for layer in layers:
+        path = Path(vectors_dir) / f"{stem}_layer{layer}.pt"
+        if not path.exists():
+            raise SystemExit(
+                f"{path} not found -- run scripts/01_concept_vectors.py "
+                f"(arm {arm!r} needs one file per band layer)")
+        blob = torch.load(path, map_location="cpu", weights_only=False)
+        out[layer] = {w: v.to(device) for w, v in blob["vectors"].items()}
+    return out
 
 
 def shard_path(out_dir: Path, concept: str) -> Path:
@@ -115,14 +231,28 @@ def shard_path(out_dir: Path, concept: str) -> Path:
     return Path(out_dir) / f"shard_{safe}.npz"
 
 
-def config_fingerprint(layers, strengths, orders, readout_layers, task) -> str:
-    """Identifies the configuration a shard was produced under."""
+def config_fingerprint(injection_policy, band_layers, strengths, orders,
+                       readout_layers, tasks, vector_arms, norm_mode) -> str:
+    """Identifies the configuration a shard was produced under.
+
+    Everything that changes what a cell MEANS belongs in here. The policy,
+    band and norm_mode are in because the sprint's central error was two runs
+    whose per-layer alpha matched and whose effective strength differed ~20x:
+    shards from those two runs are not comparable and their filenames are
+    identical. The arms are in because an `injected` cell is a different
+    object per arm, and the task list is in because the concept->task map is
+    derived from it.
+    """
     import hashlib
 
-    payload = json.dumps({"layers": sorted(layers), "strengths": sorted(strengths),
+    payload = json.dumps({"injection_policy": injection_policy,
+                          "band_layers": sorted(int(l) for l in band_layers),
+                          "strengths": sorted(strengths),
                           "orders": sorted(orders),
                           "readout_layers": sorted(readout_layers),
-                          "task": task}, sort_keys=True)
+                          "tasks": list(tasks),
+                          "vector_arms": sorted(vector_arms),
+                          "norm_mode": norm_mode}, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -166,22 +296,31 @@ def write_shard_atomic(path: Path, **arrays) -> None:
 
 def run_batch(
     model,
-    tokenizer,
     concepts_batch: list[str],
-    vectors_by_layer: dict,
+    vectors_by_arm: dict,
     randoms_by_layer: dict,
     cells: list[dict],
+    band_layers: list[int],
     cache_layers: list[int],
     prompts_by_order: dict,
     true_ids: torch.Tensor,
     false_ids: torch.Tensor,
     topk: int,
+    norm_mode: str = "live",
+    median_scope: str = "per_element",
 ) -> dict:
     """All cells for a batch of concepts. Returns {concept: arrays}.
 
     Batched by concept: every element of the batch shares one `input_ids`, so
     B concepts cost one forward. This is the difference between a 3-hour sweep
-    and a 30-hour one.
+    and a 30-hour one. Since the task diversity landed, a batch is one task
+    group -- concepts on different tasks have different prompts and cannot
+    share a forward.
+
+    `vectors_by_arm` is {arm: {layer: {concept: [d_model]}}} and
+    `randoms_by_layer` is {layer: {concept: [d_model]}}, shared by both arms.
+    `prompts_by_order` is {order: (ids, positions, clean_norms_by_layer)} for
+    THIS batch's task.
     """
     device = model.input_device
     batch_size = len(concepts_batch)
@@ -195,11 +334,29 @@ def run_batch(
     top_ids = np.zeros((batch_size, n_cells, topk), dtype=np.int32)
     top_logits = np.zeros((batch_size, n_cells, topk), dtype=np.float32)
     cell_seconds = np.zeros(n_cells, dtype=np.float64)
+    # realised displacement per cell: median over band layers of
+    # ||delta_l|| / base_l, which the hook's contract fixes at alpha_rel.
+    # Stored so G4a can check the band actually fired at the strength the cell
+    # claims, rather than trusting the label.
+    cell_fires = np.zeros(n_cells, dtype=np.int32)
+    cell_delta_ratio = np.full(n_cells, np.nan, dtype=np.float32)
 
-    # zero-strength is bit-identical across strengths; compute once per
-    # (layer, order) in this batch and reuse. Kept per-batch so G4a can test
-    # for drift across the run.
-    zero_cache: dict[tuple[int, str], tuple] = {}
+    # Stack each arm's vectors once per batch rather than once per cell: at 17
+    # band layers a per-cell stack is 32 x 17 copies of the same tensor.
+    stacked_by_arm = {
+        arm: {layer: torch.stack([layers[layer][c] for c in concepts_batch]).to(device)
+              for layer in band_layers}
+        for arm, layers in vectors_by_arm.items()
+    }
+    stacked_random = {
+        layer: torch.stack([randoms_by_layer[layer][c] for c in concepts_batch]).to(device)
+        for layer in band_layers
+    }
+
+    # zero-strength is bit-identical across strengths AND arms; compute once
+    # per order in this batch and reuse. Kept per-batch so G4a can test for
+    # drift across the run.
+    zero_cache: dict[str, dict] = {}
 
     def record(idx: int, result) -> None:
         final = result["logits"].float()
@@ -211,32 +368,36 @@ def run_batch(
         top_logits[:, idx] = values.cpu().numpy()
         for j, layer in enumerate(cache_layers):
             residuals[:, idx, j, :] = result["residuals"][layer][:, 0, :].cpu().numpy()
+        cell_fires[idx] = result.get("n_fires_total", 0)
+        ratios = sorted(band_inject.realised_displacement(result).values())
+        if ratios:
+            cell_delta_ratio[idx] = ratios[len(ratios) // 2]
 
     for idx, cell in enumerate(cells):
         started = time.time()
-        layer, order = cell["layer"], cell["order"]
-        ids, positions, median_norm = prompts_by_order[order]
+        order = cell["order"]
+        ids, positions, clean_norms = prompts_by_order[order]
         batch_ids = ids.expand(batch_size, -1).contiguous()
         report_positions = [-1]
 
         if cell["condition"] == "control_zero":
-            key = (layer, order)
-            if key not in zero_cache:
-                zero_cache[key] = inject.injected_prefill(
-                    model, batch_ids, layer, None, None, positions,
+            if order not in zero_cache:
+                zero_cache[order] = band_inject.injected_prefill_band(
+                    model, batch_ids, band_layers, None, None, positions,
                     record_layers=cache_layers, record_positions=report_positions)
-            record(idx, zero_cache[key])
+            record(idx, zero_cache[order])
             cell_seconds[idx] = time.time() - started
             continue
 
-        source = (vectors_by_layer if cell["condition"] == "injected"
-                  else randoms_by_layer)[layer]
-        vecs = torch.stack([source[c] for c in concepts_batch]).to(device)
-        alpha = torch.full((batch_size,), cell["strength"] * median_norm[layer],
-                           device=device)
-        result = inject.injected_prefill(
-            model, batch_ids, layer, vecs, alpha, positions,
-            record_layers=cache_layers, record_positions=report_positions)
+        source = (stacked_by_arm[cell["arm"]] if cell["condition"] == "injected"
+                  else stacked_random)
+        # alpha_REL, not alpha_abs: the band hook reads its own median live.
+        alpha_rel = torch.full((batch_size,), float(cell["strength"]), device=device)
+        result = band_inject.injected_prefill_band(
+            model, batch_ids, band_layers, source, alpha_rel, positions,
+            record_layers=cache_layers, record_positions=report_positions,
+            norm_mode=norm_mode, clean_norms=clean_norms,
+            median_scope=median_scope)
         record(idx, result)
         cell_seconds[idx] = time.time() - started
 
@@ -248,6 +409,8 @@ def run_batch(
             "top_ids": top_ids[i],
             "top_logits": top_logits[i],
             "cell_seconds": cell_seconds,
+            "cell_fires": cell_fires,
+            "cell_delta_ratio": cell_delta_ratio,
         }
         for i, concept in enumerate(concepts_batch)
     }
@@ -255,10 +418,10 @@ def run_batch(
 
 def cells_to_arrays(cells: list[dict]) -> dict:
     return {
-        "cell_layer": np.array([c["layer"] for c in cells], dtype=np.int32),
         "cell_strength": np.array([c["strength"] for c in cells], dtype=np.float32),
         "cell_order": np.array([c["order"] for c in cells]),
         "cell_condition": np.array([c["condition"] for c in cells]),
+        "cell_arm": np.array([c["arm"] for c in cells]),
     }
 
 

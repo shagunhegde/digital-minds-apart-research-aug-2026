@@ -77,8 +77,35 @@ def main():
     print("sweep.sweep_prompt")
     for order in ("task_then_report", "report_then_task"):
         ids, positions, _ = sweep_mod.sweep_prompt(
-            model, tok, order, prompts.TASK_PROMPTS[0], "Blue", 8, 4)
+            model, tok, order, prompts.TASK_PROMPTS[0], "Blue")
         check(order, ids, positions)
+
+    # The band assigns a task per concept, so the prompt builders are called
+    # once per (order, task) rather than once per order. A task whose text
+    # collides with the protocol instruction, or whose user span falls outside
+    # the encoding, would surface as one crash deep in the sweep otherwise.
+    print("sweep.sweep_prompt over all tasks")
+    for task in prompts.TASK_PROMPTS:
+        for order in ("task_then_report", "report_then_task"):
+            ids, positions, _ = sweep_mod.sweep_prompt(
+                model, tok, order, task, "Blue")
+            assert isinstance(positions, list) and positions
+            assert all(0 <= i < ids.shape[1] for i in positions)
+    print(f"  {len(prompts.TASK_PROMPTS)} tasks x 2 orders  all in bounds")
+
+    # And the task assignment itself: every concept gets exactly one task, the
+    # groups partition the concept list, and no group exceeds the batch.
+    print("sweep.assign_tasks / task_groups")
+    concepts = [f"c{i}" for i in range(60)]
+    task_of = sweep_mod.assign_tasks(concepts, prompts.TASK_PROMPTS)
+    groups = sweep_mod.task_groups(concepts, task_of, batch=8)
+    flat = [c for _, members in groups for c in members]
+    assert sorted(flat) == sorted(concepts), "task groups lost or duplicated a concept"
+    assert all(len(m) <= 8 for _, m in groups), "a group exceeds the batch"
+    assert all(len({task_of[c] for c in m}) == 1 for _, m in groups), \
+        "a group mixes tasks, so its elements cannot share one forward"
+    sizes = sorted({len(m) for _, m in groups})
+    print(f"  {len(concepts)} concepts -> {len(groups)} groups, sizes {sizes}")
 
     print("\nall position builders return list[int] within bounds")
 

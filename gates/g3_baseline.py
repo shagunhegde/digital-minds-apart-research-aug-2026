@@ -1,14 +1,21 @@
 """GATE G3: concept vectors and baseline reproduction.
 
 Reads what scripts/01_concept_vectors.py wrote, then measures detection and
-identification across the (layer, strength) grid with every control arm.
+identification across the (arm, strength) grid with every control arm.
 
 Emits a report and stops. It judges nothing.
 
-    python gates/g3_baseline.py [--gen-layer 27] [--gen-strength 0.09]
+    python gates/g3_baseline.py [--gen-strength 0.09]
 
 Detection is read from next-token logits, not generation (Macar's prior, ~10x
 cheaper). Identification needs text, so it runs at one operating point only.
+
+The grid's first axis used to be the injection layer. Under
+`injection_policy: workspace_band` there is one intervention at every layer
+24-40 at once, so that axis is gone and the VECTOR ARM takes its place:
+`concept` is the headline object and `jlens_row` is Garcia's own, at matched
+norm. Every number this gate produced under the single-layer policy is
+superseded rather than comparable -- the effective strength differed by ~20x.
 """
 
 from __future__ import annotations
@@ -23,15 +30,17 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import band_inject  # noqa: E402
+import config as cfg_mod  # noqa: E402
 import inject  # noqa: E402
 import judge as judge_mod  # noqa: E402
 import prompts as prompt_mod  # noqa: E402
 import stats  # noqa: E402
+import sweep as sweep_mod  # noqa: E402
 import vectors as vec_mod  # noqa: E402
 
 RULE = "=" * 78
@@ -45,9 +54,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vectors", type=Path, default=ROOT / "artifacts" / "vectors")
     ap.add_argument("--batch", type=int, default=8)
-    ap.add_argument("--inject-width", type=int, default=8)
-    ap.add_argument("--inject-tail-offset", type=int, default=4)
-    ap.add_argument("--gen-layer", type=int, default=None)
+    ap.add_argument("--arms", type=str, default=None,
+                    help="comma-separated; default planned.vector_arms")
     ap.add_argument("--gen-strength", type=float, default=None,
                     help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--gen-samples", type=int, default=4)
@@ -57,13 +65,15 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    cfg = yaml.safe_load((ROOT / "configs" / "sprint.yaml").read_text())
+    cfg = cfg_mod.load(ROOT)
     seed = cfg["seed"]
-    layers = cfg["planned"]["layers"]
-    strengths = cfg["planned"]["strengths_rel"]
-    gen_layer = args.gen_layer if args.gen_layer is not None else layers[0]
-    if args.gen_strength is None:
-        args.gen_strength = cfg["planned"]["operating_strength"]
+    policy = cfg_mod.injection_policy(cfg)
+    band = cfg_mod.injection_layers(cfg)
+    norm_mode = cfg_mod.norm_mode(cfg)
+    strengths = cfg_mod.strengths(cfg)
+    arms = ([a.strip() for a in args.arms.split(",") if a.strip()]
+            if args.arms else cfg_mod.vector_arms(cfg))
+    gen_strength = cfg_mod.operating_strength(cfg, args.gen_strength)
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
 
@@ -99,13 +109,16 @@ def main() -> None:
     device = model.input_device
     load_s = time.time() - t0
 
-    vectors_by_layer, randoms_by_layer = {}, {}
-    for layer in layers:
-        blob = torch.load(args.vectors / f"vectors_layer{layer}.pt",
-                          map_location="cpu", weights_only=False)
-        vectors_by_layer[layer] = {w: v.to(device) for w, v in blob["vectors"].items()}
-        randoms_by_layer[layer] = vec_mod.matched_random_directions(
-            vectors_by_layer[layer], seed + layer)
+    vectors_by_arm = {arm: sweep_mod.load_arm(args.vectors, arm, band, device)
+                      for arm in arms}
+    # One random set for both arms: the band hook unit-normalises whatever it
+    # is handed and scales by the live residual norm, so "matched norm" is now
+    # automatic and a second set would only add noise to the A-vs-B contrast.
+    randoms_by_layer = {
+        layer: vec_mod.matched_random_directions(
+            vectors_by_arm[arms[0]][layer], seed + layer)
+        for layer in band
+    }
 
     yes_ids, no_ids = prompt_mod.boolean_token_ids(tok)
     yes_t = torch.as_tensor(yes_ids, device=device)
@@ -120,23 +133,32 @@ def main() -> None:
 
     boolean_mass: list = []
 
-    def detect_scores(ids, positions, layer, source, words, alpha_rel, median_norm):
+    def stack_band(source_by_layer, words):
+        return {l: torch.stack([source_by_layer[l][w] for w in words]).to(device)
+                for l in band}
+
+    def detect_scores(ids, positions, source_by_layer, words, alpha_rel):
         """P(true)/(P(true)+P(false)) for each word, batched over one prompt.
 
         Also accumulates P(true)+P(false). If that sum is not near 1 the
         prefill did not land on a JSON boolean and the whole channel is
         reading the wrong position -- which is how G2's dose-response read
         0.00000 everywhere before the prefill was made forcing.
+
+        `alpha_rel` goes to the hook unscaled: the band reads its own median
+        residual norm live, inside each layer, after the earlier band layers
+        have fired. Pre-multiplying by a cached clean norm here would
+        reinstate exactly the scaling this change order removed.
         """
         out = []
         for begin in range(0, len(words), args.batch):
             chunk = words[begin:begin + args.batch]
             batch = ids.expand(len(chunk), -1).contiguous()
-            result = inject.injected_prefill(
-                model, batch, layer,
-                torch.stack([source[w] for w in chunk]).to(device),
-                torch.full((len(chunk),), alpha_rel * median_norm, device=device),
-                positions, record_layers=[layer], record_positions=positions)
+            result = band_inject.injected_prefill_band(
+                model, batch, band, stack_band(source_by_layer, chunk),
+                torch.full((len(chunk),), alpha_rel, device=device),
+                positions, record_layers=[band[-1]], record_positions=[-1],
+                norm_mode=norm_mode)
             probs = torch.softmax(result["logits"], dim=-1)
             p_yes = probs.index_select(-1, yes_t).sum(-1)
             p_no = probs.index_select(-1, no_t).sum(-1)
@@ -144,82 +166,73 @@ def main() -> None:
             out.append((p_yes / (p_yes + p_no)).cpu().numpy())
         return np.concatenate(out)
 
+    def clean_score(ids, positions) -> float:
+        result = band_inject.injected_prefill_band(
+            model, ids, band, None, None, positions,
+            record_layers=[band[-1]], record_positions=[-1])
+        probs = torch.softmax(result["logits"], dim=-1)
+        p_yes = probs.index_select(-1, yes_t).sum(-1)
+        p_no = probs.index_select(-1, no_t).sum(-1)
+        return float(p_yes / (p_yes + p_no))
+
     # ------------------------------------------------------------ the grid
-    norms = {}
-    injected = {}   # (layer, strength) -> [n_tasks, n_concepts]
-    randomarm = {}
+    injected = {}   # (arm, strength) -> [n_tasks, n_concepts]
+    randomarm = {}  # strength -> [n_tasks, n_concepts], shared across arms
     control = np.zeros(len(tasks))
     for t_idx, task in enumerate(tasks):
         ids, positions = prepared(prompt_mod.detect_messages(task))
-        clean = inject.injected_prefill(
-            model, ids, layers[0], None, None, positions,
-            record_layers=[layers[0]], record_positions=positions)
-        probs = torch.softmax(clean["logits"], dim=-1)
-        p_yes = probs.index_select(-1, yes_t).sum(-1)
-        p_no = probs.index_select(-1, no_t).sum(-1)
-        control[t_idx] = float(p_yes / (p_yes + p_no))
-        for layer in layers:
-            norms.setdefault((layer, t_idx), inject.median_residual_norm(
-                model, ids, layer, positions))
-            for strength in strengths:
-                injected.setdefault((layer, strength),
+        control[t_idx] = clean_score(ids, positions)
+        for strength in strengths:
+            randomarm.setdefault(strength, np.zeros((len(tasks), len(concepts))))
+            randomarm[strength][t_idx] = detect_scores(
+                ids, positions, randoms_by_layer, concepts, strength)
+            for arm in arms:
+                injected.setdefault((arm, strength),
                                     np.zeros((len(tasks), len(concepts))))
-                randomarm.setdefault((layer, strength),
-                                     np.zeros((len(tasks), len(concepts))))
-                injected[(layer, strength)][t_idx] = detect_scores(
-                    ids, positions, layer, vectors_by_layer[layer], concepts,
-                    strength, norms[(layer, t_idx)])
-                randomarm[(layer, strength)][t_idx] = detect_scores(
-                    ids, positions, layer, randoms_by_layer[layer], concepts,
-                    strength, norms[(layer, t_idx)])
+                injected[(arm, strength)][t_idx] = detect_scores(
+                    ids, positions, vectors_by_arm[arm], concepts, strength)
         print(f"[grid] task {t_idx + 1}/{len(tasks)} done", file=sys.stderr)
 
     # yes-bias arm: same vectors, unrelated questions whose answer is "no"
     yes_bias = {}
     for q_idx, question in enumerate(prompt_mod.YES_BIAS_QUESTIONS[: args.n_tasks]):
         ids, positions = prepared(prompt_mod.yes_bias_messages(question))
-        mn = inject.median_residual_norm(model, ids, gen_layer, positions)
-        clean = inject.injected_prefill(
-            model, ids, gen_layer, None, None, positions,
-            record_layers=[gen_layer], record_positions=positions)
-        probs = torch.softmax(clean["logits"], dim=-1)
-        base = float(probs.index_select(-1, yes_t).sum(-1)
-                     / (probs.index_select(-1, yes_t).sum(-1)
-                        + probs.index_select(-1, no_t).sum(-1)))
-        scores = detect_scores(ids, positions, gen_layer,
-                               vectors_by_layer[gen_layer], concepts,
-                               args.gen_strength, mn)
+        base = clean_score(ids, positions)
+        scores = detect_scores(ids, positions, vectors_by_arm[arms[0]],
+                               concepts, gen_strength)
         yes_bias[q_idx] = {"clean": base, "injected": scores}
 
     # ------------------------------------------- identification, generation
     ids, positions = prepared(prompt_mod.probe_messages())
-    gen_norm = inject.median_residual_norm(model, ids, gen_layer, positions)
     identified, guesses, coherence_nll, parse_ok, parse_total = [], [], [], 0, 0
     responses = []
-    for begin in range(0, len(concepts), args.batch):
-        chunk = concepts[begin:begin + args.batch]
-        batch = ids.expand(len(chunk), -1).contiguous()
-        vecs = torch.stack([vectors_by_layer[gen_layer][w] for w in chunk]).to(device)
-        alpha = torch.full((len(chunk),), args.gen_strength * gen_norm, device=device)
-        for sample in range(args.gen_samples):
-            gen = inject.generate_with_injection(
-                model, hf_model, tok, batch, gen_layer, vecs, alpha, positions,
-                max_new_tokens=32, temperature=1.0, seed=seed + sample)
-            nll = inject.sequence_nll(model, gen["sequences"], int(ids.shape[1]))
-            for k, word in enumerate(chunk):
-                text = gen["completions"][k]
-                hit = judge_mod.mention_identifies(text, word)
-                identified.append((word, hit))
-                coherence_nll.append(float(nll[k]))
-                responses.append({"concept": word, "sample": sample,
-                                  "response": text})
-                parse_total += 1
-                first = re.findall(r"[A-Za-z][A-Za-z'-]+", text)
-                if first:
-                    parse_ok += 1
-                    if not hit:
-                        guesses.append(first[0].lower())
-        print(f"[gen] {begin + len(chunk)}/{len(concepts)}", file=sys.stderr)
+    for arm in arms:
+        for begin in range(0, len(concepts), args.batch):
+            chunk = concepts[begin:begin + args.batch]
+            batch = ids.expand(len(chunk), -1).contiguous()
+            stacked = stack_band(vectors_by_arm[arm], chunk)
+            alpha = torch.full((len(chunk),), gen_strength, device=device)
+            for sample in range(args.gen_samples):
+                gen = band_inject.generate_with_injection_band(
+                    model, hf_model, tok, batch, band, stacked, alpha, positions,
+                    max_new_tokens=32, temperature=1.0, seed=seed + sample,
+                    norm_mode=norm_mode)
+                nll = inject.sequence_nll(model, gen["sequences"], int(ids.shape[1]))
+                for k, word in enumerate(chunk):
+                    text = gen["completions"][k]
+                    hit = judge_mod.mention_identifies(text, word)
+                    identified.append((word, hit, arm))
+                    coherence_nll.append(float(nll[k]))
+                    responses.append({"concept": word, "sample": sample,
+                                      "arm": arm, "response": text})
+                    parse_total += 1
+                    first = re.findall(r"[A-Za-z][A-Za-z'-]+", text)
+                    if first:
+                        parse_ok += 1
+                        if not hit:
+                            guesses.append(first[0].lower())
+            print(f"[gen] {arm} {begin + len(chunk)}/{len(concepts)}",
+                  file=sys.stderr)
 
     wall_s = time.time() - t0
 
@@ -231,20 +244,27 @@ def main() -> None:
     w("\nCONFIG")
     w(f"  model @ revision         {cfg['model']['repo']} @ {cfg['model']['revision'][:12]}")
     w(f"  seed / device            {seed} / {device}")
-    w(f"  layers x strengths       {layers} x {strengths}")
+    w(f"  injection policy         {policy}   norm_mode {norm_mode}")
+    w(f"  band                     {len(band)} layers {band[0]}..{band[-1]}")
+    w(f"  arms x strengths         {arms} x {strengths}   (strength is PER LAYER)")
     w(f"  concepts                 {len(concepts)}")
     w(f"  tasks per condition      {len(tasks)}")
-    w(f"  generation point         layer {gen_layer}, alpha_rel {args.gen_strength}, "
-      f"{args.gen_samples} samples, T=1.0")
+    w(f"  generation point         alpha_rel {gen_strength} per layer, "
+      f"{args.gen_samples} samples, T=1.0, both arms")
     w(f"  stratification source    {selection['rate_source']}")
 
     w("\nINVARIANTS")
-    all_vecs = torch.stack([vectors_by_layer[gen_layer][c] for c in concepts]).float()
+    all_vecs = torch.stack(
+        [vectors_by_arm[arms[0]][band[-1]][c] for c in concepts]).float()
     vec_norms = all_vecs.norm(dim=-1).cpu().numpy()
     dist = stats.median_iqr(vec_norms)
     outl = stats.mad_outliers(vec_norms, threshold=3.0)
-    w(f"  concept vector norms      median {dist['median']:.3f}  IQR {dist['iqr']:.3f}"
-      f"  min {dist['min']:.3f}  max {dist['max']:.3f}")
+    w(f"  {arms[0]} vector norms at L{band[-1]}  median {dist['median']:.3f}"
+      f"  IQR {dist['iqr']:.3f}  min {dist['min']:.3f}  max {dist['max']:.3f}")
+    w("    reported, not load-bearing: the band hook unit-normalises the")
+    w("    direction before scaling, so ||v|| no longer reaches the residual.")
+    w("    It was load-bearing in run 1, where raw norms of ~11 made the")
+    w("    realised perturbation 11-88x the residual it was added to.")
     w(f"  norms beyond 3 MAD        {outl['n_outliers']} of {len(concepts)}"
       f"  {[concepts[i] for i in outl['indices'][:6]]}")
     unit = all_vecs / all_vecs.norm(dim=-1, keepdim=True)
@@ -293,23 +313,24 @@ def main() -> None:
     w("  AUC is threshold-free: P(injected > control), from Cliff's delta.")
     ctrl_threshold = float(np.max(control)) if control.size else float("nan")
     w(f"    control max = {ctrl_threshold:.4f}   (the TPR@ctrl threshold)")
-    w(f"    {'layer':>5} {'alpha':>6} {'TPR@0.5':>17} {'TPR@ctrl':>17}"
+    w(f"    {'arm':>11} {'alpha':>6} {'TPR@0.5':>17} {'TPR@ctrl':>17}"
       f" {'AUC':>7} {'median score':>13}")
     fpr_hits = int((control > 0.5).sum())
     fpr_iv = stats.wilson(fpr_hits, len(control))
     grid_rows = []
-    for layer in layers:
+    for arm in arms:
         for strength in strengths:
-            arr = injected[(layer, strength)].ravel()
+            arr = injected[(arm, strength)].ravel()
             tpr = stats.wilson(int((arr > 0.5).sum()), arr.size)
             tpr_c = stats.wilson(int((arr > ctrl_threshold).sum()), arr.size)
             auc = (stats.cliffs_delta(arr, control) + 1) / 2
-            grid_rows.append({"layer": layer, "strength": strength,
+            grid_rows.append({"arm": arm, "strength": strength,
+                              "band_layers": band, "injection_policy": policy,
                               "tpr": tpr.point, "tpr_ctrl": tpr_c.point,
                               "fpr": fpr_iv.point, "auc": auc,
                               "median_score": float(np.median(arr)),
                               "n": int(arr.size)})
-            w(f"    {layer:>5} {strength:>6.1f} {fmt(tpr):>17} {fmt(tpr_c):>17}"
+            w(f"    {arm:>11} {strength:>6.3f} {fmt(tpr):>17} {fmt(tpr_c):>17}"
               f" {auc:>7.3f} {float(np.median(arr)):>13.4f}")
     w(f"  zero-strength FPR at 0.5           {fmt(fpr_iv)}  n={control.size}")
     w("  NOTE: a high TPR@ctrl with a low median score means injection moves")
@@ -317,10 +338,16 @@ def main() -> None:
     w("  Compare it against the random-direction arm below before reading it")
     w("  as introspection -- if random directions move it too, it is a")
     w("  perturbation response, not concept detection.")
-    w(f"  identification (separate from detection), layer {gen_layer} "
-      f"alpha_rel {args.gen_strength}")
-    id_hits = sum(1 for _, hit in identified if hit)
+    w(f"  identification (separate from detection), band alpha_rel {gen_strength}")
+    id_hits = sum(1 for row in identified if row[1])
     w(f"    identification rate      {fmt(stats.wilson(id_hits, len(identified)))}")
+    for arm in arms:
+        rows = [row for row in identified if row[2] == arm]
+        hits = sum(1 for row in rows if row[1])
+        w(f"      arm {arm:<11}      {fmt(stats.wilson(hits, len(rows)))}  n={len(rows)}")
+    w("    jlens_row is the ceiling arm: it is Garcia's own injected object, so")
+    w("    a rate near zero THERE is a harness fault, not a finding about the")
+    w("    model. concept below jlens_row at matched norm is the finding.")
     w("    scored by deterministic word-boundary match on singular/plural forms,")
     w("    NOT by the LLM judge -- see CROSS-CHECK for judge availability.")
 
@@ -333,20 +360,20 @@ def main() -> None:
     w("    yields identical logits, so trials cannot be multiplied by concept.")
     w("    The interval is wide by construction; the AUC column above is the")
     w("    better-powered comparison.")
-    w("  random direction at matched norm")
-    w(f"    {'layer':>5} {'alpha':>6} {'rate>0.5':>22} {'AUC vs control':>15}")
-    for layer in layers:
-        for strength in strengths:
-            arr = randomarm[(layer, strength)].ravel()
-            w(f"    {layer:>5} {strength:>6.1f} "
-              f"{fmt(stats.wilson(int((arr > 0.5).sum()), arr.size)):>22}"
-              f" {(stats.cliffs_delta(arr, control) + 1) / 2:>15.3f}")
-    w(f"  concept vs random direction at layer {gen_layer}, alpha {args.gen_strength}")
-    ci = injected[(gen_layer, args.gen_strength)].ravel() if (gen_layer, args.gen_strength) in injected else None
-    cr = randomarm[(gen_layer, args.gen_strength)].ravel() if ci is not None else None
-    if ci is not None:
-        w(f"    Cliff's delta                {stats.cliffs_delta(ci, cr):+.4f}")
-        w(f"    difference in rate           "
+    w("  random direction through the same band, shared by both arms")
+    w(f"    {'alpha':>6} {'rate>0.5':>22} {'AUC vs control':>15}")
+    for strength in strengths:
+        arr = randomarm[strength].ravel()
+        w(f"    {strength:>6.3f} "
+          f"{fmt(stats.wilson(int((arr > 0.5).sum()), arr.size)):>22}"
+          f" {(stats.cliffs_delta(arr, control) + 1) / 2:>15.3f}")
+    nearest = min(strengths, key=lambda s: abs(s - gen_strength))
+    w(f"  each arm vs the random direction at alpha {nearest}")
+    cr = randomarm[nearest].ravel()
+    for arm in arms:
+        ci = injected[(arm, nearest)].ravel()
+        w(f"    {arm:<11} Cliff's delta   {stats.cliffs_delta(ci, cr):+.4f}"
+          f"   difference in rate "
           f"{fmt(stats.newcombe_diff(int((ci > 0.5).sum()), ci.size, int((cr > 0.5).sum()), cr.size))}")
     w("  yes-bias arm (the Godet confound): the same vectors injected into")
     w("  unrelated yes/no questions whose truthful answer is 'no'. A rise here")
@@ -403,9 +430,10 @@ def main() -> None:
     w("    concept list already excludes Apples as hallucination-prone, so")
     w("    apple can only appear here as a guess, never as an injected concept.")
     nll_dist = stats.median_iqr(np.array(coherence_nll))
-    w(f"  coherence at alpha_rel {args.gen_strength}: clean-scored NLL median "
+    w(f"  coherence at alpha_rel {gen_strength}: clean-scored NLL median "
       f"{nll_dist['median']:.4f} IQR {nll_dist['iqr']:.4f}")
-    w("    (G2 carries the full NLL-vs-alpha curve; this is the one point.)")
+    w("    (G2b carries the full NLL-vs-alpha curve across the band, on a")
+    w("    NEUTRAL task; this is the one point, on the probe prompt.)")
     rubrics = judge_mod.load_rubrics(ROOT / "configs" / "judge_rubrics.json")
     llm = judge_mod.LLMJudge(rubrics)
     w(f"  judge rubrics loaded             {sorted(rubrics)}")
@@ -413,7 +441,7 @@ def main() -> None:
     labels_path = args.out / "hand_labels.json"
     if labels_path.exists():
         hand = json.loads(labels_path.read_text())
-        pairs = [(r, hand[str(i)]) for i, r in enumerate(identified)
+        pairs = [(row, hand[str(i)]) for i, row in enumerate(identified)
                  if str(i) in hand]
         if pairs:
             auto = np.array([int(p[0][1]) for p in pairs])
@@ -451,16 +479,27 @@ def main() -> None:
     anomalies.append(
         "identification is scored by deterministic string match; the LLM judge "
         f"is {'available but not used for the headline' if llm.available else 'unavailable'}")
+    anomalies.append(
+        f"this gate runs the {policy} policy over layers {band[0]}-{band[-1]}. "
+        f"Every G3 number measured under the previous single-layer policy is "
+        f"SUPERSEDED, not comparable: the per-layer alpha was the same and the "
+        f"cumulative displacement differed by roughly the width of the band.")
+    if len(arms) > 1:
+        anomalies.append(
+            f"the {len(arms)} arms share one random-direction control and one "
+            f"zero-strength control, so their AUCs are not independent.")
     for item in anomalies:
         w(f"  - {item}")
 
     w("\nCOST")
     w(f"  model load                       {load_s:8.1f} s")
     w(f"  detection grid                   "
-      f"{len(layers) * len(strengths) * len(tasks) * len(concepts) * 2} trials")
-    w(f"  generations                      {len(identified)}")
+      f"{(len(arms) + 1) * len(strengths) * len(tasks) * len(concepts)} trials"
+      f"   ({len(arms)} arms + 1 shared random)")
+    w(f"  generations                      {len(identified)}"
+      f"   ({len(arms)} arms x {args.gen_samples} samples)")
     w(f"  peak VRAM                        "
-      f"{torch.cuda.max_memory_allocated() / 2**30:8.2f} GiB")
+      f"{(torch.cuda.max_memory_allocated() / 2**30) if torch.cuda.is_available() else 0:8.2f} GiB")
     w(f"  gate wall-clock                  {wall_s:8.1f} s")
 
     w("\nARTIFACTS")
@@ -474,8 +513,9 @@ def main() -> None:
         concepts=np.array(concepts),
         vector_norms=vec_norms,
         pairwise_cosine=off,
-        **{f"injected_L{l}_a{s}": injected[(l, s)] for l in layers for s in strengths},
-        **{f"random_L{l}_a{s}": randomarm[(l, s)] for l in layers for s in strengths},
+        band_layers=np.array(band, dtype=np.int32),
+        **{f"injected_{a}_a{s}": injected[(a, s)] for a in arms for s in strengths},
+        **{f"random_a{s}": randomarm[s] for s in strengths},
     )
     (args.out / "g3_grid.json").write_text(json.dumps(grid_rows, indent=1))
     report = "\n".join(lines) + f"\n{RULE}\n"

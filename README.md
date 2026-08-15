@@ -36,10 +36,15 @@ there rather than being typed by hand.
 
 ## Method, in three sentences
 
-A concept vector — the residual for "Tell me about *X*" minus the mean over 100
-baseline words — is added to the residual stream during **prefill only**, at a
-fixed multiple of the median clean residual norm so strengths are comparable
-across layers. For each trial we record three things about the *same* prompt: a
+A steering vector is added to the residual stream during **prefill only**, at
+every layer of the 24–40 workspace band at once (Garcia's `workspace_band`
+policy), each addition scaled by the median *live* residual norm at that layer
+so strengths are comparable across layers and across papers. Two objects are
+injected at matched norm: the **concept vector** — the residual for "Tell me
+about *X*" minus the mean over 100 baseline words, extracted at each band layer
+— and the **J-lens row** `(W_U[t] @ J_ℓ)`, which is the object Garcia injects and
+serves as the positive control. For each trial we record three things about the
+*same* prompt: a
 cross-validated mass-mean probe score at the readout position (**f₁**, thresholded
 at 5% FPR on matched-norm random-direction controls), whether the concept token
 falls inside the top-k of the Jacobian-lens readout at the report position
@@ -65,12 +70,25 @@ mean, but it forfeits the cross-model rank correlation entirely, and selecting o
 a measured outcome means **tiers are a sampling device and no per-tier rate is
 reported anywhere**. Details in [`ASSETS.md`](ASSETS.md) §12.
 
-**3. One task, one operating point, and f₂ is a curve.** The sweep uses a single
-fixed task prompt, so every interval is over concepts and cells and never over
-tasks. Generation runs at one (layer, strength). And f₂ rises monotonically with
+**3. Ten tasks, one operating point, and f₂ is a curve.** Concept *i* takes task
+*i* mod 10 in all of its cells, so the controls finally carry task-level
+variation — but the task is fixed *within* a concept (that is what pairs its
+injected and control cells), so intervals are over concepts and tasks jointly and
+no per-task rate rests on more than six concepts. Generation runs at one
+strength, chosen by a human from the G2b report. And f₂ rises monotonically with
 k by construction, so a scalar f₂ is not a reportable quantity — it is only
 meaningful against the matched-norm random-vector null band, because cosine has
 no absolute scale at d=5120.
+
+**4. Two ladders were run before this one, and both were invalid.** `[1, 2, 4, 8]`
+ran before unit-normalisation, so realised ‖δ‖ was 11–88× the residual norm —
+overwrite, not steering. `[0.02, 0.05, 0.09, 0.14]` was Garcia's *per-layer*
+ladder applied at a *single* layer, ~17× weaker in cumulative displacement (23×
+measured on a toy stack, because live norms compound). Every number from those
+runs describes a misconfiguration and is superseded, not compared against. The
+methods point generalises: **published strength conventions are incommensurable,
+so report ‖δ‖ relative to the residual norm × the number of intervened layers,
+always.**
 
 Further caveats live in each gate's `ANOMALIES` block, which is where they belong:
 FPR rests on as many trials as there are task prompts (zero-strength injections are
@@ -93,16 +111,32 @@ pip install "git+https://github.com/anthropics/jacobian-lens@581d398613e5602a5af
 ```bash
 python gates/g0_assets.py          # assets, lens shape, identity-cosine profile
 python gates/g1_lens.py            # J-lens vs logit lens vs random-rotation null
-python gates/g2_inject.py          # harness invariants, dose-response, coherence
-python scripts/01_concept_vectors.py
-python gates/g3_baseline.py        # TPR/FPR grid, yes-bias arm, bimodality
-python scripts/02_sweep.py         # 4,320 cells, resumable, one shard per concept
-python scripts/03_generate.py      # T=1, 4 samples, operating point only
-python gates/g4a_sweep.py          # sweep integrity      (no GPU)
-python scripts/04_factors.py       # lens readouts + position control
-python gates/g4_factors.py         # the cascade          (no GPU)
-python scripts/05_figures.py       # three figures        (no GPU)
-python gates/g5_controls.py        # controls, multiplicity, power, prereg (no GPU)
+python gates/g2_inject.py          # single-layer harness invariants
+python gates/g2b_band.py           # the band, both arms, the ladder  <- DECISION POINT
+```
+
+G2b is where a human reads the dose-response and coherence tables and writes
+`planned.operating_strength` into `configs/sprint.yaml`. `src/config.py` refuses
+to guess, so everything below stops with an explanation until that is done.
+
+```bash
+python scripts/01_concept_vectors.py   # band re-pilot, selection, both arms
+python gates/g3_baseline.py            # (arm, strength) grid, yes-bias, bimodality
+python scripts/02_sweep.py             # 1,920 cells, resumable, one shard per concept
+python scripts/03_generate.py          # T=1, 4 samples, operating point only
+python gates/g4a_sweep.py              # sweep integrity      (no GPU)
+```
+
+The cascade is a cascade *of something*, so the last four stages run once per
+vector arm:
+
+```bash
+for arm in concept jlens_row; do
+  python scripts/04_factors.py --vector-arm "$arm"   # lens readouts + position control
+  python gates/g4_factors.py  --arm "$arm"           # the cascade    (no GPU)
+  python scripts/05_figures.py --arm "$arm"          # three figures  (no GPU)
+  python gates/g5_controls.py  --arm "$arm"          # controls, multiplicity, power, prereg
+done
 ```
 
 `notebooks/gates_a100.ipynb` runs the whole chain on an A100 80 GB with the
@@ -202,13 +236,19 @@ arm is guarded and reports itself unavailable rather than crashing.
 ```
 configs/     sprint.yaml (single source of truth), vendored concepts,
              baseline words, judge rubrics, prereg record
-src/         stats, lens, vectors, prompts, inject, sweep, factors, judge, plots
-gates/       g0..g5 -- each emits a report and stops
-scripts/     00 dip verification, 01 vectors, 02 sweep, 03 generate,
-             04 factors, 05 figures
+src/         config, stats, lens, vectors, prompts, inject, band_inject,
+             sweep, factors, judge, plots
+gates/       g0, g1, g2, g2b, g3, g4a, g4, g5 -- each emits a report and stops
+scripts/     00 dip + position verification, 01 vectors, 02 sweep,
+             03 generate, 04 factors, 05 figures
 notebooks/   gates_a100.ipynb (full chain), demo.ipynb (six cells)
 artifacts/   gitignored; mirror to HF
 ```
+
+`src/inject.py` is the single-layer harness and still backs G2 and the layer
+scan; `src/band_inject.py` is the `workspace_band` policy everything downstream
+runs under. `src/config.py` is the one reader for `sprint.yaml`, so nine scripts
+cannot drift apart on the operating point.
 
 `ASSETS.md` records what resolved, what drifted, and what is missing, with a
 resolution date. `configs/prereg.json` records which analyses were specified
