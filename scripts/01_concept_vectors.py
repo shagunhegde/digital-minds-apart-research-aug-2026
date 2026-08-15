@@ -3,7 +3,7 @@
 Resumable: every stage checks for its output file first, so a disconnect costs
 only the stage in flight.
 
-    python scripts/01_concept_vectors.py [--per-tier 20] [--pilot-strength 4.0]
+    python scripts/01_concept_vectors.py [--per-tier 20] [--pilot-strength 0.09]
 
 STRATIFICATION -- READ THIS.
 
@@ -78,7 +78,8 @@ def load_model(cfg):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-tier", type=int, default=20)
-    ap.add_argument("--pilot-strength", type=float, default=4.0)
+    ap.add_argument("--pilot-strength", type=float, default=None,
+                    help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--pilot-layer", type=int, default=None)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--inject-width", type=int, default=8)
@@ -93,6 +94,8 @@ def main() -> None:
     seed = cfg["seed"]
     layers = cfg["planned"]["layers"]
     pilot_layer = args.pilot_layer if args.pilot_layer is not None else layers[0]
+    if args.pilot_strength is None:
+        args.pilot_strength = cfg["planned"]["operating_strength"]
     torch.manual_seed(seed)
 
     model, hf_model, tok = load_model(cfg)

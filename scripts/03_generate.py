@@ -1,6 +1,6 @@
 """Generate at the operating point only. Resumable per concept.
 
-    python scripts/03_generate.py [--layer 27] [--strength 4.0]
+    python scripts/03_generate.py [--layer 27] [--strength 0.09]
 
 T=1.0 with 4 samples per condition. Garcia used T=0 with one completion and
 flags it as a limitation; sampling at temperature with several draws is a cheap
@@ -36,7 +36,8 @@ import vectors as vec_mod  # noqa: E402
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--layer", type=int, default=None)
-    ap.add_argument("--strength", type=float, default=4.0)
+    ap.add_argument("--strength", type=float, default=None,
+                    help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--samples", type=int, default=4)
     ap.add_argument("--max-new-tokens", type=int, default=96)
     ap.add_argument("--temperature", type=float, default=1.0)
@@ -53,6 +54,8 @@ def main() -> None:
     cfg = yaml.safe_load((ROOT / "configs" / "sprint.yaml").read_text())
     seed = cfg["seed"]
     layer = args.layer if args.layer is not None else cfg["planned"]["layers"][0]
+    if args.strength is None:
+        args.strength = cfg["planned"]["operating_strength"]
     orders = cfg["planned"]["orders"]
     task = args.task or prompt_mod.TASK_PROMPTS[0]
     torch.manual_seed(seed)

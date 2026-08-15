@@ -1,6 +1,6 @@
 """Turn sweep shards + generations into the inputs the cascade needs.
 
-    python scripts/04_factors.py [--layer 27] [--strength 4.0]
+    python scripts/04_factors.py [--layer 27] [--strength 0.09]
 
 Everything GPU-shaped happens here -- lens readouts from cached residuals, and
 the position-control pass -- and is written to factors_input.npz so that
@@ -38,7 +38,8 @@ import vectors as vec_mod  # noqa: E402
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--layer", type=int, default=None, help="injection layer")
-    ap.add_argument("--strength", type=float, default=4.0)
+    ap.add_argument("--strength", type=float, default=None,
+                    help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--probe-layer", type=int, default=None,
                     help="layer whose residual feeds the f1 probe; default = --layer")
     ap.add_argument("--batch", type=int, default=8)
@@ -62,10 +63,16 @@ def main() -> None:
     orders = cfg["planned"]["orders"]
     readout_layers = cfg["planned"]["readout_layers"]
     readout_primary = cfg["planned"]["f2_primary_layer"]
+    if args.strength is None:
+        args.strength = cfg["planned"]["operating_strength"]
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
 
-    manifest = json.loads((args.sweep / "manifest.json").read_text())
+    manifest_path = args.sweep / "manifest.json"
+    if not manifest_path.exists():
+        raise SystemExit(
+            f"{manifest_path} not found -- run scripts/02_sweep.py first")
+    manifest = json.loads(manifest_path.read_text())
     selection = json.loads((args.vectors / "selection.json").read_text())
     concepts = [c for c in selection["selected"]
                 if sweep_mod.shard_path(args.sweep, c).exists()]

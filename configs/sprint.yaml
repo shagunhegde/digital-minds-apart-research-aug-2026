@@ -129,6 +129,11 @@ planned:
   # whole ladder sat far past the peak.
   strengths_rel: [0.02, 0.05, 0.09, 0.14]
   strengths_source: "Garcia qwen3.6-27b config: strength x additive_norm_multiplier(2.0)"
+  # The single operating point for generation, the pilot, and the factor pass.
+  # Every script defaults to this rather than carrying its own number -- a
+  # hard-coded 4.0 survived the ladder change in nine places and would have
+  # silently reintroduced the 29x-too-strong setting on any default run.
+  operating_strength: 0.09
 
   # Garcia's position_policies: [all_user] -- inject over EVERY user-turn
   # token. Our 8-token tail window landed in the assistant prefill and the

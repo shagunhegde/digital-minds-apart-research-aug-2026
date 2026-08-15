@@ -5,7 +5,7 @@ identification across the (layer, strength) grid with every control arm.
 
 Emits a report and stops. It judges nothing.
 
-    python gates/g3_baseline.py [--gen-layer 27] [--gen-strength 4.0]
+    python gates/g3_baseline.py [--gen-layer 27] [--gen-strength 0.09]
 
 Detection is read from next-token logits, not generation (Macar's prior, ~10x
 cheaper). Identification needs text, so it runs at one operating point only.
@@ -48,7 +48,8 @@ def main() -> None:
     ap.add_argument("--inject-width", type=int, default=8)
     ap.add_argument("--inject-tail-offset", type=int, default=4)
     ap.add_argument("--gen-layer", type=int, default=None)
-    ap.add_argument("--gen-strength", type=float, default=4.0)
+    ap.add_argument("--gen-strength", type=float, default=None,
+                    help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--gen-samples", type=int, default=4)
     ap.add_argument("--n-tasks", type=int, default=10)
     ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "g3")
@@ -61,6 +62,8 @@ def main() -> None:
     layers = cfg["planned"]["layers"]
     strengths = cfg["planned"]["strengths_rel"]
     gen_layer = args.gen_layer if args.gen_layer is not None else layers[0]
+    if args.gen_strength is None:
+        args.gen_strength = cfg["planned"]["operating_strength"]
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
 

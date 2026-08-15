@@ -50,7 +50,8 @@ def main() -> None:
     ap.add_argument("--gen-alphas", type=float, nargs="*", default=[0.0, 2.0, 8.0])
     ap.add_argument("--layer-scan", type=str, default="",
                     help="comma-separated layers to compare, e.g. 20,27,35,44,50,56")
-    ap.add_argument("--scan-alpha", type=float, default=4.0)
+    ap.add_argument("--scan-alpha", type=float, default=None,
+                    help="default: planned.operating_strength from sprint.yaml")
     ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "g2")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -60,6 +61,8 @@ def main() -> None:
     seed = cfg["seed"]
     layer = args.layer if args.layer is not None else cfg["planned"]["layers"][0]
     alphas_rel = [0.0] + list(cfg["planned"]["strengths_rel"])
+    if args.scan_alpha is None:
+        args.scan_alpha = cfg["planned"]["operating_strength"]
     torch.manual_seed(seed)
 
     # ---------------------------------------------------------------- load
