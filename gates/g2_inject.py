@@ -48,6 +48,9 @@ def main() -> None:
     ap.add_argument("--inject-tail-offset", type=int, default=4,
                     help="tokens left untouched after the injection window")
     ap.add_argument("--gen-alphas", type=float, nargs="*", default=[0.0, 2.0, 8.0])
+    ap.add_argument("--layer-scan", type=str, default="",
+                    help="comma-separated layers to compare, e.g. 20,27,35,44,50,56")
+    ap.add_argument("--scan-alpha", type=float, default=4.0)
     ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "g2")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -293,6 +296,57 @@ def main() -> None:
             "probe": probe_gen["completions"][0][:72].replace("\n", " "),
         }
 
+    # ----------------------------------------------------------- layer scan
+    # Which layer does concept injection actually reach the output from? The
+    # planned layer came from Garcia's band prior, which is a STEERING result
+    # imported from different work. Three of our own measurements disagree with
+    # it: G0 puts effective rank at ~2 in the mid band and ~47 at 59, G1 puts
+    # lens pass@1 at 0.000 there and 0.136 at 59, and the published
+    # concept-injection pipeline injects at layer_fraction 0.7 (~44 here).
+    # Rank is reported alongside probability because the probabilities are
+    # ~1e-5, where rank is the informative quantity.
+    scan_layers = [int(x) for x in args.layer_scan.split(",") if x.strip()]
+    scan = {}
+    for scan_layer in scan_layers:
+        s_vecs, _ = vec_mod.extract_concept_vectors(
+            model, tok, concepts, baseline_words, scan_layer)
+        s_rand = vec_mod.matched_random_directions(s_vecs, seed)
+        s_norm = inject.median_residual_norm(model, base_ids, scan_layer, positions)
+        own_p, own_rank, off_p = [], [], []
+        for begin in range(0, len(concepts), args.batch):
+            chunk = concepts[begin:begin + args.batch]
+            res = inject.injected_prefill(
+                model, batch_ids(len(chunk)), scan_layer,
+                torch.stack([s_vecs[w] for w in chunk]).to(device),
+                torch.full((len(chunk),), args.scan_alpha * s_norm, device=device),
+                positions, record_layers=[scan_layer], record_positions=positions)
+            probs = torch.softmax(res["logits"], dim=-1)
+            picked = probs.index_select(-1, all_ids).cpu().numpy()
+            ranks = (res["logits"].unsqueeze(-1)
+                     > res["logits"].index_select(-1, all_ids).unsqueeze(-2)
+                     ).sum(-2).add(1).cpu().numpy()
+            for k, word in enumerate(chunk):
+                slots = [id_slot[i] for i in concept_ids[word]]
+                own_p.append(max(picked[k, j] for j in slots))
+                own_rank.append(min(int(ranks[k, j]) for j in slots))
+                off_p.append(float(np.mean([picked[k, j] for j in range(picked.shape[1])
+                                            if j not in slots])))
+        gen = inject.generate_with_injection(
+            model, hf_model, tok, batch_ids(1), scan_layer,
+            torch.stack([s_vecs[concepts[0]]]).to(device),
+            torch.full((1,), args.scan_alpha * s_norm, device=device), positions,
+            max_new_tokens=16, temperature=1.0, seed=seed)
+        scan[scan_layer] = {
+            "median_own_p": float(np.median(own_p)),
+            "median_own_rank": float(np.median(own_rank)),
+            "best_rank": int(np.min(own_rank)),
+            "lift": float(np.median(own_p) - np.median(off_p)),
+            "sample": gen["completions"][0][:44].replace("\n", " "),
+        }
+        del s_vecs, s_rand
+        torch.cuda.empty_cache()
+        print(f"[scan] layer {scan_layer} done", file=sys.stderr)
+
     # ----------------------------------------------------------- throughput
     torch.cuda.reset_peak_memory_stats()
     t_bench = time.time()
@@ -431,6 +485,20 @@ def main() -> None:
     for a in args.gen_alphas:
         w(f"    alpha={a:<5.1f} neutral: {coherence[a]['sample']!r}")
         w(f"    alpha={a:<5.1f} probe  : {coherence[a]['probe']!r}")
+
+    if scan:
+        w("")
+        w(f"  LAYER SCAN at alpha_rel={args.scan_alpha}: where does injection reach")
+        w("  the output? Median rank of the injected concept in the model's own")
+        w(f"  next-token distribution, over {len(concepts)} concepts.")
+        w(f"    {'layer':>6}{'median rank':>13}{'best rank':>11}{'median P':>11}"
+          f"{'lift vs other':>15}  sample")
+        for scan_layer in scan_layers:
+            r = scan[scan_layer]
+            w(f"    {scan_layer:>6}{r['median_own_rank']:>13.0f}{r['best_rank']:>11}"
+              f"{r['median_own_p']:>11.6f}{r['lift']:>+15.6f}  {r['sample']!r}")
+        w("    a rank far below the vocabulary midpoint means the injection is")
+        w("    reaching the output; ~124160 means it is not.")
 
     w("\nANOMALIES")
     anomalies = []
