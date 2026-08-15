@@ -258,19 +258,39 @@ def main() -> None:
             result["residuals"][layer].norm(dim=-1).median()) / clean_norm
 
     # ------------------------------------------------------------ coherence
+    # Measured on a NEUTRAL task, not on the probe. The probe asks the model to
+    # name the injected concept, so any successful steering changes the answer
+    # and raises NLL under the clean model -- that metric cannot separate
+    # "steering worked" from "brain damage". On a task the injection should not
+    # change, rising NLL means degradation and nothing else.
+    neutral_text = prompt_mod.render(
+        tok, [{"role": "user", "content": prompt_mod.TASK_PROMPTS[0]}], prefill=False)
+    neutral_ids = model.encode(neutral_text)
+    n_seq = int(neutral_ids.shape[1])
+    n_stop = n_seq - args.inject_tail_offset
+    neutral_pos = slice(max(0, n_stop - args.inject_width), n_stop)
+    neutral_norm = inject.median_residual_norm(model, neutral_ids, layer, neutral_pos)
+
+    n_gen = min(4, len(concepts))
     coherence = {}
     for a in args.gen_alphas:
         gen = inject.generate_with_injection(
-            model, hf_model, tok, batch_ids(min(4, len(concepts))), layer,
-            stack(concepts[:min(4, len(concepts))], vecs),
-            torch.full((min(4, len(concepts)),), a * median_norm, device=device),
-            positions, max_new_tokens=64, temperature=1.0, seed=seed)
-        nll = inject.sequence_nll(model, gen["sequences"], seq_len)
+            model, hf_model, tok, neutral_ids.expand(n_gen, -1).contiguous(), layer,
+            stack(concepts[:n_gen], vecs),
+            torch.full((n_gen,), a * neutral_norm, device=device),
+            neutral_pos, max_new_tokens=64, temperature=1.0, seed=seed)
+        nll = inject.sequence_nll(model, gen["sequences"], n_seq)
+        probe_gen = inject.generate_with_injection(
+            model, hf_model, tok, batch_ids(n_gen), layer,
+            stack(concepts[:n_gen], vecs),
+            torch.full((n_gen,), a * median_norm, device=device),
+            positions, max_new_tokens=32, temperature=1.0, seed=seed)
         coherence[a] = {
             "nll": stats.median_iqr(nll.cpu().numpy()),
             "lengths": stats.median_iqr(np.array(gen["new_token_counts"], float)),
             "n_fires": gen["n_fires"],
-            "sample": gen["completions"][0][:110].replace("\n", " "),
+            "sample": gen["completions"][0][:96].replace("\n", " "),
+            "probe": probe_gen["completions"][0][:72].replace("\n", " "),
         }
 
     # ----------------------------------------------------------- throughput
@@ -396,8 +416,11 @@ def main() -> None:
       f"   {fmt(stats.wilson(diag_wins, len(concepts)))}")
 
     w("\nCROSS-CHECK")
-    w("  coherence onset: generations scored by the UNHOOKED model, so rising")
-    w("  NLL means the text is drifting off-distribution, not merely steered.")
+    w(f"  coherence onset on a NEUTRAL task ({prompt_mod.TASK_PROMPTS[0]!r}),")
+    w("  scored by the UNHOOKED model. The probe prompt is unusable for this:")
+    w("  it asks the model to name the injected concept, so steering that works")
+    w("  raises NLL by definition. On a task injection should not change,")
+    w("  rising NLL is degradation and nothing else.")
     w(f"    {'alpha_rel':>10}  {'NLL median':>11}  {'NLL IQR':>9}"
       f"  {'len median':>11}  {'len IQR':>8}  {'fires':>5}")
     for a in args.gen_alphas:
@@ -406,7 +429,8 @@ def main() -> None:
           f"  {c['lengths']['median']:>11.1f}  {c['lengths']['iqr']:>8.1f}"
           f"  {c['n_fires']:>5}")
     for a in args.gen_alphas:
-        w(f"    alpha={a:<5.1f} sample: {coherence[a]['sample']!r}")
+        w(f"    alpha={a:<5.1f} neutral: {coherence[a]['sample']!r}")
+        w(f"    alpha={a:<5.1f} probe  : {coherence[a]['probe']!r}")
 
     w("\nANOMALIES")
     anomalies = []

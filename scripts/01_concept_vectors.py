@@ -129,7 +129,7 @@ def main() -> None:
               f"alpha_rel={args.pilot_strength}")
         vecs_pilot, _ = vec_mod.extract_concept_vectors(
             model, tok, survivors, baseline_words, pilot_layer)
-        yes_ids, no_ids = prompt_mod.yes_no_token_ids(tok)
+        yes_ids, no_ids = prompt_mod.boolean_token_ids(tok)
         yes_t = torch.as_tensor(yes_ids, device=device)
         no_t = torch.as_tensor(no_ids, device=device)
 

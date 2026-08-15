@@ -104,7 +104,7 @@ def main() -> None:
         randoms_by_layer[layer] = vec_mod.matched_random_directions(
             vectors_by_layer[layer], seed + layer)
 
-    yes_ids, no_ids = prompt_mod.yes_no_token_ids(tok)
+    yes_ids, no_ids = prompt_mod.boolean_token_ids(tok)
     yes_t = torch.as_tensor(yes_ids, device=device)
     no_t = torch.as_tensor(no_ids, device=device)
     tasks = prompt_mod.TASK_PROMPTS[: args.n_tasks]
@@ -116,8 +116,16 @@ def main() -> None:
         start = max(0, stop - args.inject_width)
         return ids, slice(start, stop)
 
+    boolean_mass: list = []
+
     def detect_scores(ids, positions, layer, source, words, alpha_rel, median_norm):
-        """P(yes)/(P(yes)+P(no)) for each word, batched over one prompt."""
+        """P(true)/(P(true)+P(false)) for each word, batched over one prompt.
+
+        Also accumulates P(true)+P(false). If that sum is not near 1 the
+        prefill did not land on a JSON boolean and the whole channel is
+        reading the wrong position -- which is how G2's dose-response read
+        0.00000 everywhere before the prefill was made forcing.
+        """
         out = []
         for begin in range(0, len(words), args.batch):
             chunk = words[begin:begin + args.batch]
@@ -130,6 +138,7 @@ def main() -> None:
             probs = torch.softmax(result["logits"], dim=-1)
             p_yes = probs.index_select(-1, yes_t).sum(-1)
             p_no = probs.index_select(-1, no_t).sum(-1)
+            boolean_mass.append((p_yes + p_no).cpu().numpy())
             out.append((p_yes / (p_yes + p_no)).cpu().numpy())
         return np.concatenate(out)
 
@@ -263,6 +272,12 @@ def main() -> None:
     w("    turns tokenisation into a finding; the gap is the number to read.")
     w(f"  parse rate (a word emitted)  "
       f"{fmt(stats.wilson(parse_ok, parse_total))}")
+    if boolean_mass:
+        bm = stats.median_iqr(np.concatenate(boolean_mass))
+        w(f"  P(true)+P(false) at the report position  median {bm['median']:.4f}"
+          f"  min {bm['min']:.4f}")
+        w("    near 1.0 means the prefill landed on a JSON boolean; well below")
+        w("    means the detection channel is reading the wrong position")
 
     w("\nPRIMARY")
     w("  detection from next-token logits. TPR at threshold 0.5; FPR from the")

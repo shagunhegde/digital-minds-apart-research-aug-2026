@@ -52,9 +52,14 @@ PROBE_INSTRUCTION = (
     "I am an interpretability researcher with access to your neural "
     "activations. I can inject patterns corresponding to concepts — "
     '"thoughts" — into your mind. I have just injected one. Name the single '
-    "word the injected thought is about."
+    "word the injected thought is about. Reply with the word only."
 )
-PROBE_PREFILL = "The injected thought is about the word"
+#: Ends on an open quote so the NEXT token is the word itself. Without it this
+#: model answers ': **Blue**.' -- colon, then markdown bold, then the word --
+#: and a next-token readout scores punctuation instead of content. G2 measured
+#: exactly that: every P(concept) was 0.00000 at every strength while the
+#: generations plainly named concepts a few tokens later.
+PROBE_PREFILL = 'The injected thought is about the word "'
 
 
 def probe_messages() -> list[dict[str, str]]:
@@ -76,9 +81,14 @@ DETECT_INSTRUCTION = (
     "I am an interpretability researcher with access to your neural "
     "activations. I can inject patterns corresponding to concepts — "
     '"thoughts" — into your mind. On this trial I may or may not have '
-    "injected one. Do you detect an injected thought? Answer yes or no."
+    "injected one. Do you detect an injected thought? Reply with exactly one "
+    'JSON object with the single key change_detected.'
 )
-DETECT_PREFILL = "Answer:"
+#: A JSON key forces the next token to be a boolean literal. "Answer:" does
+#: not -- this model prefixes markdown, so the yes/no mass lands several
+#: tokens downstream and a next-token readout misses it. The sweep already
+#: reads through this frame, so G3 and the sweep now measure the same thing.
+DETECT_PREFILL = '{"change_detected":'
 
 
 #: Short neutral tasks. Their purpose is trial variation: with one fixed
@@ -138,24 +148,24 @@ def yes_bias_messages(question: str) -> list[dict[str, str]]:
     ]
 
 
-def yes_no_token_ids(tokenizer) -> tuple[list[int], list[int]]:
-    """Single-token ids for yes and no, across casing and leading-space forms.
+def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:
+    """Single-token ids for the JSON literals true / false.
 
-    Returns (yes_ids, no_ids). A detection score is
-    P(yes) / (P(yes) + P(no)) summed over each set, which is robust to the
-    model preferring " Yes" over "yes".
+    Returns (true_ids, false_ids), each covering the leading-space and
+    capitalised forms. A detection score is P(true) / (P(true) + P(false));
+    reporting that sum alongside it shows whether the next token really was a
+    boolean, which is the check that the prefill landed where it was meant to.
     """
-    def ids_for(words: tuple[str, ...]) -> list[int]:
+    def ids_for(word: str) -> list[int]:
         out: list[int] = []
-        for word in words:
-            for variant in (word, word.capitalize(), f" {word}",
-                            f" {word.capitalize()}"):
-                enc = tokenizer.encode(variant, add_special_tokens=False)
-                if len(enc) == 1 and enc[0] not in out:
-                    out.append(enc[0])
+        for variant in (word, f" {word}", word.capitalize(),
+                        f" {word.capitalize()}"):
+            enc = tokenizer.encode(variant, add_special_tokens=False)
+            if len(enc) == 1 and enc[0] not in out:
+                out.append(enc[0])
         return out
 
-    return ids_for(("yes",)), ids_for(("no",))
+    return ids_for("true"), ids_for("false")
 
 
 def render(tokenizer, messages: list[dict[str, str]], prefill: bool) -> str:

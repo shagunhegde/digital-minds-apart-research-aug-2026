@@ -105,15 +105,8 @@ def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str,
 
 
 def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:
-    """Single-token ids for JSON true / false, with and without a leading space."""
-    def ids_for(word: str) -> list[int]:
-        out: list[int] = []
-        for variant in (word, f" {word}", word.capitalize(), f" {word.capitalize()}"):
-            enc = tokenizer.encode(variant, add_special_tokens=False)
-            if len(enc) == 1 and enc[0] not in out:
-                out.append(enc[0])
-        return out
-    return ids_for("true"), ids_for("false")
+    """Re-exported from prompts, which owns the frame that forces them."""
+    return prompt_mod.boolean_token_ids(tokenizer)
 
 
 def shard_path(out_dir: Path, concept: str) -> Path:
