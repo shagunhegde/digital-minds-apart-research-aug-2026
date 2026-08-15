@@ -186,6 +186,8 @@ def main() -> None:
         eff_rank[layer] = stats.participation_ratio(singular)
         del j, spectrum
 
+    # hashed once: the file is 3.3 GB and both the report and the payload want it
+    lens_sha = sha256_file(lens_path)
     wall_s = time.time() - t_start
 
     # -------------------------------------------------------------- report
@@ -232,7 +234,7 @@ def main() -> None:
 
     w("\nPRIMARY")
     w(f"  lens on-disk bytes                 {lens_path.stat().st_size:,}")
-    w(f"  lens on-disk sha256                {sha256_file(lens_path)}")
+    w(f"  lens on-disk sha256                {lens_sha}")
     w(f"  stored dtype / resident dtype      {stored_dtype} / "
       f"{next(iter(lens.jacobians.values())).dtype}")
     w(f"  per-layer J shape                  "
@@ -315,7 +317,7 @@ def main() -> None:
         "config": cfg,
         "loader_used": loader_used,
         "source_layers": source_layers,
-        "lens_sha256": sha256_file(lens_path),
+        "lens_sha256": lens_sha,
         "identity_cosine": {str(k): v for k, v in identity_cos.items()},
         "effective_rank": {str(k): v for k, v in eff_rank.items()},
         "row_norms": {str(l): d for l, d in row_norm_rows},
