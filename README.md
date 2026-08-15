@@ -158,8 +158,9 @@ upstream author who would rather these were fetched at run time than vendored, o
 an issue and they will be replaced with a fetch-and-verify step like the one already
 used for the eval sets.
 
-This repo's own code carries no licence file yet; that is the author's choice to
-make and has not been made.
+This repo's own code is MIT — see [`LICENSE`](LICENSE). That covers the code
+written here; it does not relicense the vendored material above, which stays
+under its own terms.
 
 ---
 
