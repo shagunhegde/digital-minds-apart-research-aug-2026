@@ -181,8 +181,17 @@ def main() -> None:
     for layer in layers:
         path = args.out / f"vectors_layer{layer}.pt"
         if path.exists():
-            print(f"[extract] layer {layer} already on disk, skipping")
-            continue
+            saved = torch.load(path, map_location="cpu", weights_only=False)
+            if list(saved.get("concepts", [])) == list(selected):
+                print(f"[extract] layer {layer} already on disk, skipping")
+                continue
+            # Resuming on file existence alone is not enough: these vectors are
+            # for whichever concepts the previous selection picked. If the
+            # selection changed, silently keeping them would sweep the wrong
+            # concept set with no error anywhere.
+            print(f"[extract] layer {layer} on disk but for a different "
+                  f"selection ({len(saved.get('concepts', []))} concepts) -- "
+                  f"re-extracting")
         vecs, baseline_mean = vec_mod.extract_concept_vectors(
             model, tok, selected, baseline_words, layer)
         torch.save({

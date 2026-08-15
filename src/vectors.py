@@ -161,24 +161,50 @@ def stratify_by_rate(
     rng = np.random.default_rng(seed)
     ranked = sorted(words, key=lambda w: (-rates[w], w))
     zero = [w for w in ranked if rates[w] == 0.0]
-    nonzero = [w for w in ranked if rates[w] > 0.0]
-    high = nonzero[:per_tier]
-    middle_pool = nonzero[per_tier:]
+
+    # The build spec's bottom tier is "20 at exactly 0%", which is a RATE over
+    # generated trials and can be exactly zero. Our pilot score is
+    # P(true)/(P(true)+P(false)) from next-token logits -- continuous, and
+    # never exactly zero. Requiring exact zeros silently returned 40 concepts
+    # instead of 60. Exact zeros are still preferred when the score does
+    # produce them; otherwise the bottom tier is the bottom of the ranking,
+    # which is what "lowest detection" means for a continuous score.
+    if len(zero) >= per_tier:
+        low = [str(w) for w in rng.permutation(zero)[:per_tier]]
+        low_mode = "exact-zero"
+        remaining = [w for w in ranked if rates[w] > 0.0]
+    else:
+        low = ranked[-per_tier:]
+        low_mode = "bottom-ranked"
+        remaining = ranked[:-per_tier]
+
+    high = remaining[:per_tier]
+    middle_pool = remaining[per_tier:]
     if middle_pool:
         centre = len(middle_pool) // 2
-        lo = max(0, centre - per_tier // 2)
-        middle = middle_pool[lo:lo + per_tier]
+        start = max(0, centre - per_tier // 2)
+        middle = middle_pool[start:start + per_tier]
     else:
         middle = []
-    zero_pick = list(rng.permutation(zero)[:per_tier]) if zero else []
-    selected = [*high, *middle, *[str(w) for w in zero_pick]]
+
+    selected = [*high, *middle, *low]
+    tier_rates = {
+        "high": [rates[w] for w in high],
+        "middle": [rates[w] for w in middle],
+        "low": [rates[w] for w in low],
+    }
     return selected, {
+        "low_tier_mode": low_mode,
         "n_zero_available": len(zero),
-        "n_nonzero_available": len(nonzero),
+        "n_available": len(words),
         "n_high": len(high),
         "n_middle": len(middle),
-        "n_zero_selected": len(zero_pick),
+        "n_low": len(low),
         "shortfall": max(0, 3 * per_tier - len(selected)),
+        "tier_rate_range": {
+            name: [float(min(v)), float(max(v))] if v else None
+            for name, v in tier_rates.items()
+        },
     }
 
 
