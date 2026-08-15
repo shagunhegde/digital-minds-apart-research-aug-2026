@@ -8,7 +8,10 @@ Four requirements from the build spec, and what each costs if it is wrong:
      a 30-hour one.
 2.2  Norm normalisation is mandatory. alpha_abs = alpha_rel * median clean
      residual norm at the injection positions, cached per layer. A raw alpha
-     is not comparable across layers.
+     is not comparable across layers. The contract is
+     ||delta|| == alpha_rel * median_residual_norm, which requires the
+     steering direction to be a unit vector -- make_hook normalises it, and
+     G2 checks the realised norm ratio against sqrt(1 + alpha_rel^2).
 2.3  Prefill only. The injection is an edit to the prompt's residuals; it must
      not fire while decoding cached tokens.
 2.4  Cache selectively -- residuals at the injection and report positions
@@ -71,10 +74,19 @@ def make_hook(
         if h.shape[-1] != vectors.shape[-1]:
             raise ValueError(
                 f"d_model mismatch: hidden {h.shape[-1]} vs vectors {vectors.shape[-1]}")
+        # The direction must be a UNIT vector for alpha_abs to mean what 2.2
+        # says it means. alpha_abs is alpha_rel x the median clean residual
+        # norm, so the intended perturbation size is ||delta|| = alpha_abs;
+        # that only holds if ||v|| == 1. Concept vectors are
+        # activation(word) - mean(baseline) and come out with ||v|| ~ 11 on
+        # this model, so scaling the raw vector injected ~11x too hard at the
+        # lowest rung and ~87x at the top -- G2 measured exactly that, and
+        # every probability in the dose-response table was driven to 0.
+        unit = vectors / vectors.norm(dim=-1, keepdim=True).clamp_min(1e-6)
         # Cast the delta to the hidden dtype. Without this the in-place add
         # raises: fp32 vectors against a bf16 residual promote to fp32, which
         # is not the destination dtype.
-        delta = (alpha_abs[:, None, None] * vectors[:, None, :]).to(h.dtype).to(h.device)
+        delta = (alpha_abs[:, None, None] * unit[:, None, :]).to(h.dtype).to(h.device)
         h[:, positions, :] += delta
         fired.append(int(h.shape[1]))
         return (h, *output[1:]) if isinstance(output, tuple) else h
@@ -167,6 +179,10 @@ def generate_with_injection(
         with torch.inference_mode():
             out = hf_model.generate(
                 input_ids=input_ids,
+                # every row is the same prompt with no padding, so the mask is
+                # all ones; passing it explicitly silences a transformers
+                # warning and stops it guessing from a pad==eos tokenizer
+                attention_mask=torch.ones_like(input_ids),
                 max_new_tokens=max_new_tokens,
                 do_sample=temperature > 0,
                 temperature=temperature if temperature > 0 else None,

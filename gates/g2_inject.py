@@ -92,18 +92,34 @@ def main() -> None:
     # rest of the pipeline again.
     pool, _pool_meta = vec_mod.load_concept_pool(ROOT / "configs" / "concepts.json")
 
-    concept_ids = {}
-    concepts: list[str] = []
+    # Round-robin over the source categories rather than taking the first N.
+    # The pool is ordered by category, so "first 10 single-token" returned ten
+    # animals -- a specificity matrix over ten near-synonyms measures category
+    # confusion, not steering specificity.
+    by_category: dict[str, list[str]] = {}
     n_multi_token = 0
+    concept_ids = {}
     for item in pool:
-        word = item["word"]
-        ids = vec_mod.single_token_ids(tok, word)
+        ids = vec_mod.single_token_ids(tok, item["word"])
         if not ids:
             n_multi_token += 1
             continue
-        if len(concepts) < args.n_concepts:
-            concepts.append(word)
-            concept_ids[word] = ids
+        concept_ids[item["word"]] = ids
+        by_category.setdefault(item["category"], []).append(item["word"])
+
+    concepts: list[str] = []
+    rank = 0
+    while len(concepts) < args.n_concepts:
+        added = False
+        for category in sorted(by_category):
+            members = by_category[category]
+            if rank < len(members) and len(concepts) < args.n_concepts:
+                concepts.append(members[rank])
+                added = True
+        if not added:
+            break
+        rank += 1
+    concept_ids = {w: concept_ids[w] for w in concepts}
     if len(concepts) < 2:
         raise RuntimeError(f"only {len(concepts)} single-token concepts available")
 
@@ -338,10 +354,16 @@ def main() -> None:
                      if not (rho_concept[i] > 0.9)]
     w(f"  concepts with rho <= 0.9           {non_monotonic}")
     w("")
-    w("  residual norm ratio vs clean, at the injection positions")
-    w(f"    {'alpha_rel':>10}  {'ratio':>8}")
+    w("  residual norm ratio vs clean, at the injection positions.")
+    w("  The contract is ||delta|| = alpha_rel x median residual norm, so with")
+    w("  delta roughly orthogonal to h the ratio should track sqrt(1+alpha^2).")
+    w("  A ratio far above that means the steering direction is not unit-norm")
+    w("  and the whole ladder is mis-scaled.")
+    w(f"    {'alpha_rel':>10}  {'ratio':>8}  {'expected':>9}  {'obs/exp':>8}")
     for a in alphas_rel:
-        w(f"    {a:>10.1f}  {norm_ratio[a]:>8.4f}")
+        expected = float(np.sqrt(1.0 + a * a))
+        w(f"    {a:>10.1f}  {norm_ratio[a]:>8.4f}  {expected:>9.4f}"
+          f"  {norm_ratio[a] / expected:>8.2f}")
 
     w("\nCONTROLS")
     w("  random direction at matched norm: the same ladder, same positions,")
