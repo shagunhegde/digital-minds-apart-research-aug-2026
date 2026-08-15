@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import band_inject  # noqa: E402
 import config as cfg_mod  # noqa: E402
+import judge as judge_mod  # noqa: E402
 import lens as lens_mod  # noqa: E402
 import sweep as sweep_mod  # noqa: E402
 import vectors as vec_mod  # noqa: E402
@@ -104,9 +105,19 @@ def main() -> None:
         gen_records.extend(json.loads(path.read_text()))
     if not gen_records:
         raise SystemExit("no generations found -- run scripts/03_generate.py first")
+    gen_meta = json.loads((args.gen / "meta.json").read_text()) \
+        if (args.gen / "meta.json").exists() else {}
     # keep this arm's injected generations and the shared controls
     gen_records = [r for r in gen_records
                    if r["condition"] != "injected" or r.get("arm") == arm]
+    if gen_meta.get("strength") is not None and \
+            not np.isclose(float(gen_meta["strength"]), strength):
+        raise SystemExit(
+            f"the generations at {args.gen} were produced at strength "
+            f"{gen_meta['strength']}, but this run is at {strength}. f3 would "
+            f"come from a different intervention than f1 and f2, and "
+            f"cascade_residual would measure that mismatch rather than a "
+            f"denominator bug. Pass --gen the matching directory.")
 
     # ---------------------------------------------------------------- model
     import jlens
@@ -290,23 +301,113 @@ def main() -> None:
                                                         readout_layer)
         print(f"[position] {order} done", file=sys.stderr)
 
+    # ------------------------------------------------------- the naming slot
+    # Same intervention, same injected positions, one JSON key further: the
+    # next token here is the model's NAME for the concept rather than a
+    # boolean. Reading f2 at the boolean slot asks whether a word outranks
+    # `true`/`false` where the grammar admits only a boolean -- f2 = 0 at
+    # k=50 there is close to guaranteed by the position, and is a fact about
+    # the readout site, not about verbalizability.
+    naming_cache = sweep_mod.build_naming_cache(
+        model, tok, orders, tasks, answers, band_layers)
+    naming_ranks = {(l, mode): np.full(len(cell_rows), np.nan)
+                    for l in readout_layers for mode in ("jacobian", "logit")}
+    naming_output_rank = np.full(len(cell_rows), np.nan)
+    naming_output_prob = np.full(len(cell_rows), np.nan)
+    for order in orders:
+        for task, members_all in sweep_mod.task_groups(
+                concepts, task_of, args.batch):
+            ids, positions, clean_norms = naming_cache[(order, task)]
+            for condition in sweep_mod.CONDITIONS:
+                chunk = [c for c in members_all
+                         if (c, order, condition) in cell_key]
+                if not chunk:
+                    continue
+                batch_ids = ids.expand(len(chunk), -1).contiguous()
+                if condition == "control_zero":
+                    source, alpha_rel = vectors_by_arm[arm], 0.0
+                elif condition == "control_random":
+                    source, alpha_rel = randoms_by_layer, strength
+                else:
+                    source, alpha_rel = vectors_by_arm[arm], strength
+                stacked = {l: torch.stack([source[l][c] for c in chunk]).to(device)
+                           for l in band_layers}
+                alpha = torch.full((len(chunk),), alpha_rel, device=device)
+                result = band_inject.injected_prefill_band(
+                    model, batch_ids, band_layers, stacked, alpha, positions,
+                    record_layers=readout_layers, record_positions=[-1],
+                    norm_mode=norm_mode, clean_norms=clean_norms)
+                with torch.inference_mode():
+                    # the model's OWN next-token distribution at the naming
+                    # slot: the primary f2, needing no lens at all
+                    out_logits = result["logits"].float()
+                    out_probs = torch.softmax(out_logits, dim=-1)
+                    for k, concept in enumerate(chunk):
+                        row = cell_key[(concept, order, condition)]
+                        ids_c = concept_token_ids[concept]
+                        if ids_c:
+                            tokens = torch.as_tensor(ids_c, device=out_logits.device)
+                            ranks = lens_mod.ranks_of(
+                                out_logits[k].unsqueeze(0), tokens)
+                            naming_output_rank[row] = float(ranks.min())
+                            naming_output_prob[row] = float(
+                                out_probs[k].index_select(-1, tokens).max())
+                        for readout_layer in readout_layers:
+                            h = result["residuals"][readout_layer][k, 0, :].unsqueeze(0)
+                            for mode in ("jacobian", "logit"):
+                                naming_ranks[(readout_layer, mode)][row] = \
+                                    ranks_from_residual(h, concept, lens,
+                                                        readout_layer, mode=mode)
+        print(f"[naming] {order} done", file=sys.stderr)
+
     # ------------------------------------------------------------- trials
+    # f3 is re-derived from the parsed object here rather than trusted from
+    # the record, so generations written before the report/steering split are
+    # scored correctly without regenerating them. The first band run stored
+    # `identifies` as a whole-response match, which counted a STEERED answer
+    # ("detected_concept": null, "task_answer": "Granite" for the concept
+    # Granite) as an identification -- all 16 of its "reports" were that.
     trial_cell, trial_sample, trial_ident, trial_parse = [], [], [], []
     trial_concept, trial_order, trial_condition, trial_task = [], [], [], []
+    trial_steered, trial_claims, trial_ident_anywhere = [], [], []
     dropped = 0
+    rescored, scored_on_text = 0, 0
     for rec in gen_records:
         key = (rec["concept"], rec["order"], rec["condition"])
         if key not in cell_key:
             dropped += 1
             continue
+        hit, how = judge_mod.report_identifies(
+            rec.get("parsed"), rec.get("response", ""), rec["concept"])
+        anywhere = bool(rec.get("identifies_anywhere",
+                                judge_mod.mention_identifies(
+                                    rec.get("response", ""), rec["concept"])))
+        if hit != bool(rec.get("identifies", hit)):
+            rescored += 1
+        if how == "text":
+            scored_on_text += 1
+        steered = rec.get("steered")
+        if steered is None and rec["order"] == "report_then_task":
+            steered = judge_mod.answer_steered(rec.get("parsed"), rec["concept"])
         trial_cell.append(cell_key[key])
         trial_sample.append(rec["sample"])
-        trial_ident.append(bool(rec["identifies"]))
+        trial_ident.append(hit)
+        trial_ident_anywhere.append(anywhere)
+        trial_steered.append(bool(steered))
+        trial_claims.append(bool(rec.get("parsed")
+                                 and rec["parsed"].get("change_detected") is True))
         trial_parse.append(bool(rec["parse_ok"]))
         trial_concept.append(rec["concept"])
         trial_order.append(rec["order"])
         trial_condition.append(rec["condition"])
         trial_task.append(rec.get("task", ""))
+    if rescored:
+        print(f"[f3] re-scored {rescored} of {len(trial_ident)} trials: the "
+              f"stored `identifies` matched the whole response, this reads "
+              f"detected_concept only")
+    if scored_on_text:
+        print(f"[f3] {scored_on_text} trials had no parsable object and fell "
+              f"back to a whole-response match")
 
     payload = {
         "cell_concept": np.array([r["concept"] for r in cell_rows]),
@@ -320,14 +421,21 @@ def main() -> None:
         "trial_cell": np.array(trial_cell, dtype=np.int32),
         "trial_sample": np.array(trial_sample, dtype=np.int32),
         "trial_identifies": np.array(trial_ident, dtype=bool),
+        "trial_identifies_anywhere": np.array(trial_ident_anywhere, dtype=bool),
+        "trial_steered": np.array(trial_steered, dtype=bool),
+        "trial_claims_detection": np.array(trial_claims, dtype=bool),
         "trial_parse_ok": np.array(trial_parse, dtype=bool),
         "trial_concept": np.array(trial_concept),
         "trial_order": np.array(trial_order),
         "trial_condition": np.array(trial_condition),
     }
+    payload["naming_output_rank"] = naming_output_rank
+    payload["naming_output_prob"] = naming_output_prob
     for l in readout_layers:
         payload[f"cached_rank_L{l}"] = cached_ranks[l]
         payload[f"logit_rank_L{l}"] = logit_ranks[l]
+        payload[f"naming_rank_L{l}"] = naming_ranks[(l, "jacobian")]
+        payload[f"naming_logit_rank_L{l}"] = naming_ranks[(l, "logit")]
         for p in ("report", "injection", "random"):
             payload[f"pos_rank_L{l}_{p}"] = pos_ranks[(l, p)]
         if r_lens:
@@ -347,6 +455,20 @@ def main() -> None:
         "orders": orders, "conditions": list(sweep_mod.CONDITIONS),
         "n_cells": len(cell_rows), "n_trials": len(trial_cell),
         "dropped_generations": dropped,
+        # f2 has two slots and they answer different questions; the primary is
+        # pre-registered in configs/prereg.json as the model's own output
+        # distribution at the naming slot.
+        "f2_slots": {
+            "primary": "naming_output_rank",
+            "mechanistic": [f"naming_rank_L{readout_primary}",
+                            f"naming_logit_rank_L{readout_primary}"],
+            "boolean_slot": f"cached_rank_L{readout_primary}",
+        },
+        "f3_scoring": "detected_concept field only",
+        "f3_rescored_from_stored": rescored,
+        "f3_fallback_to_text": scored_on_text,
+        "generation_task_first_prefill": gen_meta.get("task_first_prefill", "clean"),
+        "generation_dir": str(args.gen),
         "r_lens_used": bool(r_lens), "r_lens_error": r_lens_error,
         "tasks": tasks, "task_of": task_of,
         "seed": seed, "wall_s": time.time() - t0,

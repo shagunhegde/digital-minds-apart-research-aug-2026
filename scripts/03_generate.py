@@ -47,6 +47,13 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--arms", type=str, default=None,
                     help="comma-separated; default planned.vector_arms")
+    ap.add_argument("--task-first-prefill", choices=("clean", "natural"),
+                    default="clean",
+                    help="clean: quote the model's own CLEAN greedy answer in "
+                         "the task-first prefill, matching the sweep's cached "
+                         "residuals. natural: prefill only '{\"task_answer\": \"' "
+                         "and let the model write its own, possibly steered, "
+                         "answer -- Garcia's actual condition.")
     ap.add_argument("--vectors", type=Path, default=ROOT / "artifacts" / "vectors")
     ap.add_argument("--out", type=Path, default=ROOT / "artifacts" / "generations")
     args = ap.parse_args()
@@ -112,7 +119,8 @@ def main() -> None:
     # denominator bug. The model simply finishes the JSON object it has been
     # started on.
     prompt_cache, answers, _meta = sweep_mod.build_prompt_cache(
-        model, hf_model, tok, orders, tasks, band_layers)
+        model, hf_model, tok, orders, tasks, band_layers,
+        task_first_prefill=args.task_first_prefill)
     task_of = sweep_mod.assign_tasks(concepts, tasks)
     groups = sweep_mod.task_groups(concepts, task_of, args.batch)
 
@@ -131,9 +139,8 @@ def main() -> None:
         records = []
         for order in orders:
             ids, positions, clean_norms = prompt_cache[(order, task)]
-            prefill = ('{"change_detected":' if order == "report_then_task"
-                       else '{"task_answer": "' + answers[task]
-                            + '", "change_detected":')
+            prefill = sweep_mod.report_prefill(
+                order, answers[task], args.task_first_prefill)
             batch_ids = ids.expand(len(chunk), -1).contiguous()
             for condition, arm in combos:
                 if condition == "control_zero":
@@ -165,16 +172,37 @@ def main() -> None:
                         # only parses once the prefill is put back in front
                         full = prefill + text
                         parsed = judge_mod.parse_three_key_json(full)
+                        # The REPORT channel and the STEERING channel are
+                        # scored separately and must never be pooled. In the
+                        # first band run they were: `identifies` matched the
+                        # whole response, so a trial that reported
+                        # change_detected=false and was steered into answering
+                        # "Granite" for the concept Granite counted as an
+                        # identification. All 16 "reports" were that.
+                        hit, how = judge_mod.report_identifies(parsed, text, concept)
+                        steered = judge_mod.answer_steered(parsed, concept)
+                        if (order == "task_then_report"
+                                and args.task_first_prefill == "clean"):
+                            # the answer was handed to the model; whatever it
+                            # contains is not evidence about steering
+                            steered = None
                         records.append({
                             "concept": concept, "order": order,
                             "condition": condition, "arm": arm,
                             "sample": sample, "task": task,
                             "strength": alpha_rel,
+                            "task_first_prefill": args.task_first_prefill,
                             "response": text,
                             "full_json": full,
                             "parsed": parsed,
                             "parse_ok": parsed is not None,
-                            "identifies": judge_mod.mention_identifies(text, concept),
+                            "identifies": hit,
+                            "identifies_scored_on": how,
+                            "identifies_anywhere":
+                                judge_mod.mention_identifies(text, concept),
+                            "steered": steered,
+                            "claims_detection": bool(
+                                parsed and parsed.get("change_detected") is True),
                             "new_tokens": gen["new_token_counts"][k],
                         })
         tmp = path.with_suffix(".json.tmp")
@@ -187,6 +215,7 @@ def main() -> None:
         "injection_policy": policy, "band_layers": band_layers,
         "norm_mode": norm_mode,
         "strength": strength, "samples": args.samples,
+        "task_first_prefill": args.task_first_prefill,
         "temperature": args.temperature, "max_new_tokens": args.max_new_tokens,
         "orders": orders, "conditions": list(sweep_mod.CONDITIONS),
         "arms": arms, "tasks": tasks, "task_of": task_of,

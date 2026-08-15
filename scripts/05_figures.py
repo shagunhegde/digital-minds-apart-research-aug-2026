@@ -80,10 +80,36 @@ def main() -> None:
     cell_score[inj_cells] = probe["scores_injected"]
     cell_score[ctl_cells] = probe["scores_control"]
 
+    # Per-order threshold, matching G4. A pooled quantile put the task-first
+    # controls at 0.000 and the report-first controls at 0.100 against a
+    # nominal 0.05, which manufactured most of the f1 order effect.
+    cell_order = blob["cell_order"].astype(str)
+    threshold_by_order = {
+        order: fac.threshold_at_fpr(
+            cell_score[ctl_cells[cell_order[ctl_cells] == order]], args.fpr)
+        for order in orders
+    }
+
     is_inj = trial_condition == "injected"
     is_rand = trial_condition == "control_random"
-    rank_key = f"cached_rank_L{readout_primary}"
-    f1_pass = fac.compute_f1(cell_score[trial_cell][is_inj], threshold)
+    # f2 at the pre-registered primary slot when the artifact carries it
+    slot_keys = {
+        "naming_output": "naming_output_rank",
+        "naming_jlens": f"naming_rank_L{readout_primary}",
+        "boolean": f"cached_rank_L{readout_primary}",
+    }
+    slot = next((s for s in (args.f2_slot, "naming_output", "boolean")
+                 if slot_keys.get(s) in blob), "boolean")
+    rank_key = slot_keys[slot]
+    slot_label = {
+        "naming_output": "f₂ at the naming slot, model output distribution",
+        "naming_jlens": f"f₂ at the naming slot, J-lens L{readout_primary}",
+        "boolean": f"f₂ at the boolean slot, J-lens L{readout_primary}",
+    }[slot]
+    thr_per_trial = np.array([threshold_by_order.get(o, threshold)
+                              for o in trial_order[is_inj]])
+    scores_inj = cell_score[trial_cell][is_inj]
+    f1_pass = np.isfinite(scores_inj) & (scores_inj > thr_per_trial)
     ranks = blob[rank_key][trial_cell][is_inj]
     rand_ranks = blob[rank_key][trial_cell][is_rand]
     f3_pass = trial_ident[is_inj]

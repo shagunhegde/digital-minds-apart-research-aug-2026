@@ -141,19 +141,52 @@ def clean_task_answer(model, hf_model, tokenizer, task: str, max_new_tokens: int
     return text.strip().split("\n")[0].replace('"', "'").strip()[:80]
 
 
-def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str):
-    """Prompt whose next token is the detection boolean, in either order.
+def report_prefill(order: str, clean_answer: str,
+                   task_first_prefill: str = "clean") -> str:
+    """The assistant prefill that puts the next token where we read it.
 
-    Returns (input_ids [1, seq], injection positions slice, rendered text).
+    report_then_task stops at the detection key, so the next token is a JSON
+    boolean and the model still writes its own task answer afterwards.
+
+    task_then_report has two modes, and the difference is a whole experimental
+    condition:
+
+      clean    quote the model's own CLEAN greedy answer, then stop at the
+               detection key. The next token is a boolean in this order too,
+               which is what makes the order contrast a contrast of one
+               quantity. But the model never writes a steered answer -- so
+               this is NOT Garcia's task-first condition, it is the
+               clean-substitution cell of the output-substitution 2x2, and
+               comparing its report rate to his 322 is comparing two different
+               experiments.
+      natural  prefill only the opening of the answer and let the model write
+               it, steered or not, before it reaches the detection keys. This
+               IS Garcia's condition. The report position is then wherever the
+               model puts it, so detection must be read from the parsed JSON
+               rather than from a next-token logit.
+    """
+    if order == "report_then_task":
+        return '{"change_detected":'
+    if task_first_prefill == "natural":
+        return '{"task_answer": "'
+    if task_first_prefill != "clean":
+        raise ValueError(f"unknown task_first_prefill {task_first_prefill!r}")
+    return '{"task_answer": "' + clean_answer + '", "change_detected":'
+
+
+def prompt_with_prefill(model, tokenizer, order: str, task: str, prefill: str):
+    """The two-order protocol prompt, continued by `prefill`.
+
+    Returns (input_ids [1, seq], injection positions, rendered text). The
+    injection positions are located by character offset inside the USER turn,
+    so they do not move when the assistant prefill changes length -- which is
+    what lets the boolean slot and the naming slot be read off the same
+    intervention.
     """
     protocol = protocol_for(order)
     messages = prompt_mod.build_messages(task, order, protocol)
     rendered = prompt_mod.render(tokenizer, messages, prefill=False,
                                  enable_thinking=False)
-    if order == "report_then_task":
-        prefill = '{"change_detected":'
-    else:
-        prefill = '{"task_answer": "' + clean_answer + '", "change_detected":'
     rendered = rendered + prefill
     ids = model.encode(rendered)
     # Garcia's all_user policy: inject over every token of the task turn.
@@ -164,7 +197,48 @@ def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str):
     return ids, positions, rendered
 
 
-def build_prompt_cache(model, hf_model, tokenizer, orders, tasks, band_layers):
+def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str,
+                 task_first_prefill: str = "clean"):
+    """Prompt whose next token is the detection BOOLEAN, in either order."""
+    return prompt_with_prefill(
+        model, tokenizer, order, task,
+        report_prefill(order, clean_answer, task_first_prefill))
+
+
+def naming_prefill(order: str, clean_answer: str) -> str:
+    """Assistant prefill whose next token is the model's NAME for the concept.
+
+    f2 asks whether the concept is verbalizable at the report position. Read
+    at the boolean slot -- the token after `"change_detected":` -- the answer
+    is fixed by the grammar: the next token there must be `true` or `false`,
+    and a concept word has no business in any top-k. f2 = 0 at k=50 is then
+    close to guaranteed by the position, not a finding about the model.
+
+    This prefill walks one key further, to the slot where a word is what the
+    grammar demands. It asserts `change_detected: true` on the way, which is
+    deliberate: the counterfactual verbalizability asks "IF it tried to name
+    the concept, could it", so the detection frame is conditioned on rather
+    than measured. That is Macar's forced-identification read from logits
+    (arXiv 2603.21396), not a new construct -- cite it, do not claim it.
+
+    G2b already validated the operationalisation: at the naming-style probe
+    slot P(target) reached 0.31-0.41 for the jlens arm at alpha 0.05-0.09, so
+    the machinery is known to light up when the position is right.
+    """
+    if order == "report_then_task":
+        return '{"change_detected": true, "detected_concept": "'
+    return ('{"task_answer": "' + clean_answer + '", '
+            '"change_detected": true, "detected_concept": "')
+
+
+def naming_prompt(model, tokenizer, order: str, task: str, clean_answer: str):
+    """Prompt whose next token is the model's name for the injected concept."""
+    return prompt_with_prefill(
+        model, tokenizer, order, task, naming_prefill(order, clean_answer))
+
+
+def build_prompt_cache(model, hf_model, tokenizer, orders, tasks, band_layers,
+                       task_first_prefill: str = "clean"):
     """{(order, task): (ids, positions, clean_norms)}, plus {task: answer}, meta.
 
     Twenty entries at 2 orders and 10 tasks, built once and shared by the
@@ -183,13 +257,14 @@ def build_prompt_cache(model, hf_model, tokenizer, orders, tasks, band_layers):
     for task in tasks:
         for order in orders:
             ids, positions, rendered = sweep_prompt(
-                model, tokenizer, order, task, answers[task])
+                model, tokenizer, order, task, answers[task], task_first_prefill)
             norms = band_inject.band_median_norms(
                 model, ids, band_layers, positions)
             cache[(order, task)] = (ids, positions, norms)
             meta[f"{order}|{task}"] = {
                 "task": task,
                 "order": order,
+                "task_first_prefill": task_first_prefill,
                 "clean_task_answer": answers[task],
                 "seq_len": int(ids.shape[1]),
                 "n_injected_positions": len(positions),
@@ -198,6 +273,25 @@ def build_prompt_cache(model, hf_model, tokenizer, orders, tasks, band_layers):
                 "rendered_tail": rendered[-220:],
             }
     return cache, answers, meta
+
+
+def build_naming_cache(model, tokenizer, orders, tasks, answers, band_layers):
+    """{(order, task): (ids, positions, clean_norms)} for the NAMING slot.
+
+    Same intervention, same injected positions, one key further into the JSON
+    object -- see `naming_prefill`. Takes the answers the report cache already
+    computed rather than regenerating them, so the two frames quote the same
+    clean answer and differ only in where they stop.
+    """
+    cache = {}
+    for task in tasks:
+        for order in orders:
+            ids, positions, _rendered = naming_prompt(
+                model, tokenizer, order, task, answers[task])
+            norms = band_inject.band_median_norms(
+                model, ids, band_layers, positions)
+            cache[(order, task)] = (ids, positions, norms)
+    return cache
 
 
 def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:

@@ -35,25 +35,58 @@ def _tidy(ax) -> None:
     ax.set_axisbelow(True)
 
 
+def _rate(value: float, entered: int, expr: str) -> str:
+    """A conditional rate for a legend, or why there isn't one.
+
+    A conditional whose denominator is empty is undefined, not zero, and
+    printing `nan` in a legend invites a reader to treat it as a measured
+    null. Say what happened instead.
+    """
+    if entered == 0:
+        return "n/a (0 entered)"
+    if not np.isfinite(value):
+        return "n/a (undefined)"
+    return f"{expr} = {value:.3f}"
+
+
 def cascade_bar(f1: float, f2: float, f3: float, n_entering: int,
-                title: str = "") -> plt.Figure:
+                title: str = "", subtitle: str = "",
+                n_surviving_f1: int | None = None,
+                n_surviving_f2: int | None = None) -> plt.Figure:
     """Figure 1 -- the poster. 100% decomposed into three losses and a survivor.
 
     Widths are the actual mass lost at each stage, so the segments sum to 100
     by construction: (1-f1) + f1(1-f2) + f1f2(1-f3) + f1f2f3 = 1.
-    """
-    lost_1 = (1 - f1) * 100
-    lost_2 = f1 * (1 - f2) * 100
-    lost_3 = f1 * f2 * (1 - f3) * 100
-    survives = f1 * f2 * f3 * 100
 
-    fig, ax = plt.subplots(figsize=(10, 3.1))
+    `subtitle` names the f2 slot. It is not decoration: "f2 at the naming slot
+    read from the output distribution" and "f2 at the boolean slot read
+    through the J-lens at L59" are different measurements of different things,
+    and a figure that does not say which invites the wrong one to be quoted.
+    """
+    f2_defined = np.isfinite(f2)
+    f3_defined = np.isfinite(f3)
+    lost_1 = (1 - f1) * 100
+    lost_2 = f1 * (1 - f2) * 100 if f2_defined else 0.0
+    lost_3 = f1 * f2 * (1 - f3) * 100 if f2_defined and f3_defined else 0.0
+    survives = f1 * f2 * f3 * 100 if f2_defined and f3_defined else 0.0
+
+    fig, ax = plt.subplots(figsize=(10, 3.4))
     left = 0.0
+    entered_2 = (n_surviving_f1 if n_surviving_f1 is not None
+                 else int(round(f1 * n_entering)))
+    entered_3 = (n_surviving_f2 if n_surviving_f2 is not None
+                 else int(round(f1 * f2 * n_entering)) if f2_defined else 0)
     segments = [
         (lost_1, LOSS_F1, "representation failure", f"1 − f₁ = {1 - f1:.3f}"),
-        (lost_2, LOSS_F2, "verbalizability failure", f"f₁(1 − f₂) = {f1 * (1 - f2):.3f}"),
-        (lost_3, LOSS_F3, "channel closure", f"f₁f₂(1 − f₃) = {f1 * f2 * (1 - f3):.3f}"),
-        (survives, SURVIVE, "reported", f"f₁f₂f₃ = {f1 * f2 * f3:.3f}"),
+        (lost_2, LOSS_F2, "verbalizability failure",
+         _rate(f1 * (1 - f2) if f2_defined else float("nan"), entered_2,
+               "f₁(1 − f₂)")),
+        (lost_3, LOSS_F3, "channel closure",
+         _rate(f1 * f2 * (1 - f3) if f2_defined and f3_defined else float("nan"),
+               entered_3, "f₁f₂(1 − f₃)")),
+        (survives, SURVIVE, "reported",
+         _rate(f1 * f2 * f3 if f2_defined and f3_defined else float("nan"),
+               entered_3, "f₁f₂f₃")),
     ]
     for width, colour, _label, _detail in segments:
         if width <= 0:
@@ -75,55 +108,86 @@ def cascade_bar(f1: float, f2: float, f3: float, n_entering: int,
     ax.set_ylim(-0.5, 0.5)
     ax.set_yticks([])
     ax.set_xlabel("% of injection trials", fontsize=11)
-    ax.set_title(title or "Where the injected concept is lost", fontsize=13,
-                 color=INK, pad=12)
+    # Title, subtitle and the n annotation used to be stacked into the same
+    # ~0.16 axes-fraction of headroom and overlapped. The title now owns the
+    # figure's suptitle slot, the subtitle sits under it, and n moves inside
+    # the axes.
+    ax.set_title("", pad=2)
+    fig.suptitle(title or "Where the injected concept is lost", fontsize=13,
+                 color=INK, y=0.99)
+    if subtitle:
+        fig.text(0.5, 0.905, subtitle, ha="center", va="top", fontsize=9.5,
+                 color="#555555")
     _tidy(ax)
-    ax.text(0.995, 1.16, f"n = {n_entering} injection trials", transform=ax.transAxes,
-            ha="right", va="top", fontsize=9, color="#666666")
-    fig.tight_layout()
+    ax.text(0.995, 0.97, f"n = {n_entering} injection trials",
+            transform=ax.transAxes, ha="right", va="top", fontsize=9,
+            color="#666666")
+    fig.tight_layout(rect=(0, 0, 1, 0.88 if subtitle else 0.93))
     return fig
 
 
 def order_contrast(per_order: dict, differences: dict,
-                   title: str = "") -> plt.Figure:
+                   title: str = "", subtitle: str = "") -> plt.Figure:
     """Figure 2 -- the same cascade under both orders, plus a CI on the DIFFERENCE.
 
-    `per_order`: {order: {"f1":..,"f2":..,"f3":..}}
+    `per_order`: {order: {"f1":..,"f2":..,"f3":.., "n_surviving_f1":.., ...}}
     `differences`: {"f1": (point, lo, hi), ...} for order_a - order_b
 
     Two overlapping marginal intervals do not settle whether a difference
     straddles zero, which is why the right panel plots the difference itself.
+
+    A factor whose denominator is empty in either order is DROPPED from both
+    panels and named in a footnote. Plotting it as 0.00 with no interval reads
+    as a measured null -- "the model never verbalises it" -- when what
+    happened is that nothing reached the stage and the conditional is
+    undefined.
     """
     orders = list(per_order)
     names = ["f1", "f2", "f3"]
-    pretty = ["f₁", "f₂", "f₃"]
+    pretty = {"f1": "f₁", "f2": "f₂", "f3": "f₃"}
+    denominators = {"f2": "n_surviving_f1", "f3": "n_surviving_f2"}
+
+    def defined(name: str) -> bool:
+        for order in orders:
+            row = per_order[order]
+            if not np.isfinite(row.get(name, float("nan"))):
+                return False
+            key = denominators.get(name)
+            if key is not None and row.get(key, 1) == 0:
+                return False
+        return True
+
+    shown = [n for n in names if defined(n)]
+    dropped = [n for n in names if n not in shown]
+    if not shown:                       # nothing survived anywhere
+        shown, dropped = ["f1"], [n for n in names if n != "f1"]
 
     fig, (ax, ax2) = plt.subplots(
-        1, 2, figsize=(11, 3.6), gridspec_kw={"width_ratios": [1.25, 1]})
+        1, 2, figsize=(11, 3.8), gridspec_kw={"width_ratios": [1.25, 1]})
 
-    x = np.arange(len(names))
+    x = np.arange(len(shown))
     width = 0.36
     for i, order in enumerate(orders):
-        values = [per_order[order][n] for n in names]
+        values = [per_order[order][n] for n in shown]
         ax.bar(x + (i - 0.5) * width, values, width,
                label=order.replace("_", " "),
                color=[SURVIVE, LOSS_F2][i % 2], edgecolor="white", linewidth=1.2)
     ax.set_xticks(x)
-    ax.set_xticklabels(pretty, fontsize=12)
+    ax.set_xticklabels([pretty[n] for n in shown], fontsize=12)
     ax.set_ylabel("conditional rate", fontsize=11)
     ax.set_ylim(0, 1)
     ax.legend(frameon=False, fontsize=9.5)
     ax.set_title("cascade by order", fontsize=11, color=INK)
     _tidy(ax)
 
-    points = [differences[n][0] for n in names]
-    lows = [differences[n][0] - differences[n][1] for n in names]
-    highs = [differences[n][2] - differences[n][0] for n in names]
+    points = [differences[n][0] for n in shown]
+    lows = [differences[n][0] - differences[n][1] for n in shown]
+    highs = [differences[n][2] - differences[n][0] for n in shown]
     ax2.errorbar(points, x, xerr=[lows, highs], fmt="o", color=SURVIVE,
                  capsize=4, markersize=7, linewidth=2)
     ax2.axvline(0, color="#999999", linewidth=1.2, linestyle="--")
     ax2.set_yticks(x)
-    ax2.set_yticklabels(pretty, fontsize=12)
+    ax2.set_yticklabels([pretty[n] for n in shown], fontsize=12)
     ax2.invert_yaxis()
     label_a = orders[0].replace("_", " ")
     label_b = orders[1].replace("_", " ") if len(orders) > 1 else "?"
@@ -131,8 +195,17 @@ def order_contrast(per_order: dict, differences: dict,
     ax2.set_title("CI on the difference, not two marginals", fontsize=11, color=INK)
     _tidy(ax2)
 
-    fig.suptitle(title or "Order contrast", fontsize=13, color=INK)
-    fig.tight_layout()
+    fig.suptitle(title or "Order contrast", fontsize=13, color=INK, y=0.99)
+    note = subtitle
+    if dropped:
+        missing = ", ".join(pretty[n] for n in dropped)
+        reason = (f"{missing} omitted: no trials reached the stage in at "
+                  f"least one order, so the conditional is undefined")
+        note = f"{note}  ·  {reason}" if note else reason
+    if note:
+        fig.text(0.5, 0.905, note, ha="center", va="top", fontsize=9,
+                 color="#555555")
+    fig.tight_layout(rect=(0, 0, 1, 0.88 if note else 0.94))
     return fig
 
 

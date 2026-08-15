@@ -49,6 +49,18 @@ def main() -> None:
     ap.add_argument("--fpr", type=float, default=0.05)
     ap.add_argument("--probe-folds", type=int, default=5)
     ap.add_argument("--k", type=int, default=10, help="headline k")
+    ap.add_argument("--f2-slot", type=str, default="naming_output",
+                    choices=("naming_output", "naming_jlens", "naming_logit",
+                             "boolean"),
+                    help="where f2 is read. naming_output (default, the "
+                         "pre-registered primary) is the model's own next-token "
+                         "distribution at the '\"detected_concept\": \"' slot; "
+                         "boolean is the old '\"change_detected\":' slot, where "
+                         "the grammar admits only true/false")
+    ap.add_argument("--f1-threshold", type=str, default="per-order",
+                    choices=("per-order", "pooled"),
+                    help="calibrate the f1 probe threshold within each order "
+                         "(default) or once across both")
     ap.add_argument("--n-boot", type=int, default=2000)
     ap.add_argument("--out", type=Path, default=None,
                     help="default artifacts/g4/<arm>")
@@ -111,6 +123,35 @@ def main() -> None:
     cell_score_null = np.full(len(cell_concept), np.nan)
     cell_score_null[inj_cells] = probe_null["scores_injected"]
 
+    # PER-ORDER f1 calibration. The report slot sits at a different depth in
+    # the two prompts -- task-first quotes an answer before the detection key
+    # -- so the two control score distributions need not match, and one pooled
+    # quantile can be far off 5% FPR in either order. An f1 of 0.000 in
+    # task-first is only a finding if the task-first CONTROLS pass at ~0.05;
+    # if they pass at ~0.00 the threshold was simply mis-set for that order.
+    cell_order = blob["cell_order"].astype(str)
+    threshold_by_order = {}
+    control_pass = {}
+    for order in orders:
+        sel = ctl_cells[cell_order[ctl_cells] == order]
+        scores = cell_score[sel]
+        thr_o = fac.threshold_at_fpr(scores, args.fpr)
+        threshold_by_order[order] = thr_o
+        finite = scores[np.isfinite(scores)]
+        control_pass[order] = {
+            "n_control": int(finite.size),
+            "at_pooled": float(np.mean(finite > threshold)) if finite.size else float("nan"),
+            "at_per_order": float(np.mean(finite > thr_o)) if finite.size else float("nan"),
+            "threshold": float(thr_o),
+        }
+
+    def threshold_for_trials(mask):
+        """Per-trial threshold, taken from that trial's own order."""
+        if args.f1_threshold == "pooled":
+            return np.full(int(mask.sum()), threshold)
+        return np.array([threshold_by_order.get(o, threshold)
+                         for o in trial_order[mask]])
+
     # ------------------------------------------------- expand cells -> trials
     def cell_to_trial(values):
         return values[trial_cell]
@@ -119,13 +160,33 @@ def main() -> None:
     is_random = trial_condition == "control_random"
 
     def arrays_for(mask, rank_key, score=cell_score, thr=None):
-        thr = threshold if thr is None else thr
-        f1 = fac.compute_f1(cell_to_trial(score)[mask], thr)
+        scores = cell_to_trial(score)[mask]
+        thr = threshold_for_trials(mask) if thr is None else thr
+        f1 = np.isfinite(scores) & (scores > thr)
         ranks = cell_to_trial(blob[rank_key])[mask]
         f3 = trial_ident[mask]
         return f1, ranks, f3
 
-    rank_key = f"cached_rank_L{readout_primary}"
+    # f2 has two slots. PRIMARY is the model's own output distribution at the
+    # naming slot; the boolean slot is retained because the contrast between
+    # them is itself the methods finding. Old artifacts carry only the
+    # boolean slot, so the choice degrades rather than crashing.
+    slot_keys = {
+        "naming_output": "naming_output_rank",
+        "naming_jlens": f"naming_rank_L{readout_primary}",
+        "naming_logit": f"naming_logit_rank_L{readout_primary}",
+        "boolean": f"cached_rank_L{readout_primary}",
+    }
+    available = {name: key for name, key in slot_keys.items() if key in blob}
+    slot = args.f2_slot if args.f2_slot in available else None
+    if slot is None:
+        slot = "boolean"
+        f2_slot_note = (f"{args.f2_slot!r} not in this factors_input.npz "
+                        f"(re-run scripts/04_factors.py to add the naming "
+                        f"slot); falling back to the boolean slot")
+    else:
+        f2_slot_note = ""
+    rank_key = slot_keys[slot]
     f1_pass, ranks, f3_pass = arrays_for(is_injected, rank_key)
     concepts_inj = trial_concept[is_injected]
     orders_inj = trial_order[is_injected]
@@ -148,7 +209,31 @@ def main() -> None:
     w(f"  cells / trials           {meta['n_cells']} / {meta['n_trials']}")
     w(f"  generations dropped      {meta['dropped_generations']} (no matching cell)")
     w(f"  probe folds              {probe['n_folds']} (grouped by concept)")
-    w(f"  f1 threshold at FPR      {args.fpr}  ->  score {threshold:+.4f}")
+    w(f"  f1 threshold at FPR      {args.fpr}  ->  pooled score {threshold:+.4f}"
+      f"   (using: {args.f1_threshold})")
+    for order in orders:
+        cp = control_pass[order]
+        w(f"    {order:<18} threshold {cp['threshold']:+.4f}   controls pass "
+          f"at pooled {cp['at_pooled']:.4f} / per-order {cp['at_per_order']:.4f}"
+          f"   n={cp['n_control']}")
+    w("    each per-order control rate should sit at the nominal FPR. If an")
+    w("    order's controls pass at ~0 under the pooled threshold, an f1 of")
+    w("    0.000 in that order is a mis-set threshold, not a measurement.")
+    w(f"  f2 slot                  {slot}  ({rank_key})")
+    if f2_slot_note:
+        w(f"    ! {f2_slot_note}")
+    w(f"    slots present in this npz: {sorted(available)}")
+    w(f"  f3 scored on             {meta.get('f3_scoring', 'unknown')}"
+      f"   (re-scored {meta.get('f3_rescored_from_stored', 0)} trials, "
+      f"{meta.get('f3_fallback_to_text', 0)} fell back to text)")
+    w(f"  task-first prefill       "
+      f"{meta.get('generation_task_first_prefill', 'clean')}"
+      + ("   <- the CLEAN-SUBSTITUTION cell, not Garcia's condition: the"
+         if meta.get("generation_task_first_prefill", "clean") == "clean" else ""))
+    if meta.get("generation_task_first_prefill", "clean") == "clean":
+        w("                             model never wrote a steered answer in")
+        w("                             this order, so its report rate is NOT")
+        w("                             comparable to Garcia's 322.")
     w(f"  headline k               {args.k}")
     w(f"  R-lens                   {meta['r_lens_used']}"
       f"{'' if meta['r_lens_used'] else '  (' + str(meta['r_lens_error']) + ')'}")
@@ -314,6 +399,88 @@ def main() -> None:
           f"residual={row_logit['residual']:.3e}")
 
     w("")
+    w("  f2 SLOT CONTRAST: the same trials, read at both positions. This is a")
+    w("  methods finding, not a robustness check -- where you read decides")
+    w("  what you conclude, and the boolean slot's zero is a property of the")
+    w("  grammar at that position rather than of the model.")
+    w(f"    {'slot':<16}{'key':<26}{'f2@k':>8}{'median rank':>13}{'null f2':>9}")
+    slot_rows = {}
+    for name in ("naming_output", "naming_jlens", "naming_logit", "boolean"):
+        if name not in available:
+            continue
+        key = slot_keys[name]
+        rr = cell_to_trial(blob[key])[is_injected]
+        nn = cell_to_trial(blob[key])[is_random]
+        value = float(np.mean(fac.compute_f2(rr, args.k)))
+        null = float(np.mean(fac.compute_f2(nn, args.k)))
+        slot_rows[name] = {"key": key, "f2": value, "null_f2": null,
+                           "median_rank": float(np.nanmedian(rr))}
+        w(f"    {name:<16}{key:<26}{value:>8.4f}{np.nanmedian(rr):>13.0f}"
+          f"{null:>9.4f}")
+    if "naming_output_prob" in blob:
+        p = cell_to_trial(blob["naming_output_prob"])[is_injected]
+        pn = cell_to_trial(blob["naming_output_prob"])[is_random]
+        w(f"    P(concept token) at the naming slot: injected median "
+          f"{np.nanmedian(p):.5f}   random median {np.nanmedian(pn):.5f}")
+
+    w("")
+    w("  report-side FPR: the control conditions' own report and detection")
+    w("  rates. A cascade that never states these is quoting a TPR alone.")
+    w(f"    {'condition':<16}{'order':<18}{'identifies':>26}{'claims detection':>26}")
+    fpr_rows = []
+    for condition in ("control_zero", "control_random"):
+        for order in ["ALL", *orders]:
+            mask = trial_condition == condition
+            if order != "ALL":
+                mask = mask & (trial_order == order)
+            if not mask.any():
+                continue
+            ident = stats.wilson(int(trial_ident[mask].sum()), int(mask.sum()))
+            claims = (stats.wilson(int(blob["trial_claims_detection"][mask].sum()),
+                                   int(mask.sum()))
+                      if "trial_claims_detection" in blob else None)
+            fpr_rows.append({"condition": condition, "order": order,
+                             "identifies": ident.point,
+                             "claims_detection": claims.point if claims else None,
+                             "n": int(mask.sum())})
+            w(f"    {condition:<16}{order:<18}{fmt(ident):>26}"
+              f"{(fmt(claims) if claims else 'n/a'):>26}")
+
+    w("")
+    w("  steering, the manipulation check. An unsteered trial cannot test")
+    w("  introspection, and being steered is NOT reporting -- these are the")
+    w("  trials where the concept appears in the model's OWN task answer.")
+    steer_rows = []
+    if "trial_steered" in blob:
+        w(f"    {'condition':<16}{'order':<18}{'steered':>26}")
+        for condition in ("injected", "control_zero", "control_random"):
+            for order in orders:
+                mask = (trial_condition == condition) & (trial_order == order)
+                if not mask.any():
+                    continue
+                if (order == "task_then_report"
+                        and meta.get("generation_task_first_prefill",
+                                     "clean") == "clean"):
+                    w(f"    {condition:<16}{order:<18}"
+                      f"{'n/a (answer prefilled)':>26}")
+                    continue
+                iv = stats.wilson(int(blob["trial_steered"][mask].sum()),
+                                  int(mask.sum()))
+                steer_rows.append({"condition": condition, "order": order,
+                                   "steered": iv.point, "n": int(mask.sum())})
+                w(f"    {condition:<16}{order:<18}{fmt(iv):>26}")
+    if "trial_identifies_anywhere" in blob:
+        anywhere = int(blob["trial_identifies_anywhere"][is_injected].sum())
+        field = int(trial_ident[is_injected].sum())
+        w(f"    concept named ANYWHERE in the response  {anywhere} of "
+          f"{is_injected.sum()}")
+        w(f"    concept named in the REPORT field       {field} of "
+          f"{is_injected.sum()}")
+        w("      the gap is trials that were steered into answering with the")
+        w("      concept while reporting nothing. Scoring f3 on the whole")
+        w("      response counts those as introspection; this gate does not.")
+
+    w("")
     w("  jackknife, leave one concept out")
     f2_pass = fac.compute_f2(ranks, args.k)
     w(f"    {'factor':<8}{'full':>9}{'lo':>9}{'hi':>9}{'range':>9}  most influential")
@@ -374,6 +541,34 @@ def main() -> None:
         "samples drawn from it; only f3 varies within a cell. Trial counts are "
         "therefore not independent, which is why every interval here is a "
         "cluster bootstrap over concepts.")
+    skewed = [o for o in orders
+              if np.isfinite(control_pass[o]["at_pooled"])
+              and abs(control_pass[o]["at_pooled"] - args.fpr) > args.fpr / 2]
+    if skewed:
+        anomalies.append(
+            "a POOLED f1 threshold does not hold "
+            + ", ".join(f"{o} at {control_pass[o]['at_pooled']:.4f}"
+                        for o in skewed)
+            + f" against a nominal {args.fpr}. The report slot sits at a "
+            "different depth in the two prompts, so the control score "
+            "distributions differ and one quantile cannot serve both. Any f1 "
+            "order effect computed on a pooled threshold is a calibration "
+            "artifact of exactly this size; this gate reports the per-order "
+            f"calibration ({args.f1_threshold}).")
+    if meta.get("generation_task_first_prefill", "clean") == "clean":
+        anomalies.append(
+            "task_then_report quoted the model's CLEAN greedy answer, so the "
+            "model never wrote a steered answer in that order. That is the "
+            "clean-substitution cell of the output-substitution 2x2, not "
+            "Garcia's task-first condition -- his 322 is not a comparator for "
+            "this row. Re-run 03_generate with --task-first-prefill natural.")
+    if slot == "boolean":
+        anomalies.append(
+            "f2 is read at the token after '\"change_detected\":', where the "
+            "grammar admits only true/false. A concept word cannot enter any "
+            "top-k there, so an f2 of 0 is a property of the readout position "
+            "and not evidence about verbalizability. Re-run 04_factors to add "
+            "the naming slot and read the pre-registered primary.")
     for item in anomalies:
         w(f"  - {item}")
 
@@ -382,9 +577,47 @@ def main() -> None:
     w(f"  gate wall-clock                    {time.time() - t0:8.1f} s")
 
     w("\nARTIFACTS")
+    naive_by_cell = {}
+    for condition in ("injected", "control_zero", "control_random"):
+        for order in ["ALL", *orders]:
+            mask = trial_condition == condition
+            if order != "ALL":
+                mask = mask & (trial_order == order)
+            if not mask.any():
+                continue
+            naive_by_cell[f"{condition}|{order}"] = {
+                "identifies": float(np.mean(trial_ident[mask])),
+                "n": int(mask.sum()),
+            }
+    k_curve_by_slot = {
+        name: [{"k": k,
+                "f2": float(np.mean(fac.compute_f2(
+                    cell_to_trial(blob[slot_keys[name]])[is_injected], k))),
+                "null_f2": float(np.mean(fac.compute_f2(
+                    cell_to_trial(blob[slot_keys[name]])[is_random], k)))}
+               for k in KS]
+        for name in available
+    }
     out = {"headline": headline, "residual_rows": residual_rows,
            "threshold": threshold, "naive_report_rate": naive,
-           "per_concept": profiles, "meta": meta}
+           "per_concept": profiles, "meta": meta,
+           # everything the paper has to state and results.json did not carry
+           "f1_threshold_mode": args.f1_threshold,
+           "f1_threshold_by_order": threshold_by_order,
+           "f1_control_pass_by_order": control_pass,
+           "f2_slot": slot, "f2_slot_key": rank_key,
+           "f2_slots_available": sorted(available),
+           "f2_slot_contrast": slot_rows,
+           "f2_k_curve_by_slot": k_curve_by_slot,
+           "report_fpr": fpr_rows,
+           "steering": steer_rows,
+           "naive_report_rate_by_cell": naive_by_cell,
+           "identifies_anywhere_total": (
+               int(blob["trial_identifies_anywhere"][is_injected].sum())
+               if "trial_identifies_anywhere" in blob else None),
+           "identifies_report_field_total": int(trial_ident[is_injected].sum()),
+           "task_first_prefill": meta.get("generation_task_first_prefill",
+                                          "clean")}
     (args.out / "g4_factors.json").write_text(json.dumps(out, indent=1, default=float))
     report = "\n".join(lines) + f"\n{RULE}\n"
     (args.out / "g4_report.txt").write_text(report)
