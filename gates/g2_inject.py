@@ -87,21 +87,17 @@ def main() -> None:
     # ------------------------------------------------------- concepts, prompt
     baseline_words, baseline_diag = vec_mod.load_baseline_words(
         ROOT / "configs" / "baseline_words.json")
-    catalogue = json.loads((ROOT / "configs" / "concepts.json").read_text())["concepts"]
-
-    def single_token(word: str) -> list[int]:
-        ids = []
-        for variant in (word, word.lower(), f" {word}", f" {word.lower()}"):
-            enc = tok.encode(variant, add_special_tokens=False)
-            if len(enc) == 1 and enc[0] not in ids:
-                ids.append(enc[0])
-        return ids
+    # concepts.json entries are {word, category, bucket}; go through the shared
+    # loader and the shared token helper so this gate cannot drift from the
+    # rest of the pipeline again.
+    pool, _pool_meta = vec_mod.load_concept_pool(ROOT / "configs" / "concepts.json")
 
     concept_ids = {}
     concepts: list[str] = []
     n_multi_token = 0
-    for word in catalogue:
-        ids = single_token(word)
+    for item in pool:
+        word = item["word"]
+        ids = vec_mod.single_token_ids(tok, word)
         if not ids:
             n_multi_token += 1
             continue
@@ -297,7 +293,7 @@ def main() -> None:
     w(f"  concepts                 {len(concepts)}  {concepts}")
     w(f"  baseline words           {baseline_diag['n']} "
       f"({baseline_diag['n_duplicated']} duplicated) from {baseline_diag['source']}")
-    w(f"  concepts dropped, multi-token  {n_multi_token} of {len(catalogue)}")
+    w(f"  concepts dropped, multi-token  {n_multi_token} of {len(pool)}")
 
     w("\nINVARIANTS")
     w(f"  zero-strength identity, max |logit delta|   {zero_delta:.6e}")
