@@ -89,19 +89,20 @@ def sweep_prompt(model, tokenizer, order: str, task: str, clean_answer: str,
     """
     protocol = protocol_for(order)
     messages = prompt_mod.build_messages(task, order, protocol)
-    rendered = prompt_mod.render(tokenizer, messages, prefill=False)
+    rendered = prompt_mod.render(tokenizer, messages, prefill=False,
+                                 enable_thinking=False)
     if order == "report_then_task":
         prefill = '{"change_detected":'
     else:
         prefill = '{"task_answer": "' + clean_answer + '", "change_detected":'
     rendered = rendered + prefill
     ids = model.encode(rendered)
-    seq = int(ids.shape[1])
-    stop = seq - tail_offset
-    start = max(0, stop - inject_width)
-    if start <= 0:
-        raise ValueError(f"injection window {start}:{stop} invalid for seq {seq}")
-    return ids, slice(start, stop), rendered
+    # Garcia's all_user policy: inject over every token of the task turn.
+    positions = prompt_mod.user_positions(tokenizer, rendered, task)
+    positions = [i for i in positions if i < int(ids.shape[1])]
+    if not positions:
+        raise ValueError("user span fell outside the encoded prompt")
+    return ids, positions, rendered
 
 
 def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:

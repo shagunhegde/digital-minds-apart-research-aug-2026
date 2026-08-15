@@ -168,13 +168,67 @@ def boolean_token_ids(tokenizer) -> tuple[list[int], list[int]]:
     return ids_for("true"), ids_for("false")
 
 
-def render(tokenizer, messages: list[dict[str, str]], prefill: bool) -> str:
+def render(tokenizer, messages: list[dict[str, str]], prefill: bool,
+           enable_thinking: bool = False) -> str:
     """Apply the chat template. `prefill` continues the final assistant turn
-    instead of opening a new one."""
+    instead of opening a new one.
+
+    `enable_thinking=False` matches Garcia's config for this checkpoint. With
+    thinking on, this model opens generations with "Here's a thinking process:"
+    and spends the token budget there instead of answering, which changes the
+    output distribution every downstream measurement reads.
+    """
+    kwargs = {"tokenize": False}
     if prefill:
+        kwargs["continue_final_message"] = True
+    else:
+        kwargs["add_generation_prompt"] = True
+    try:
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, continue_final_message=True
-        )
-    return tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+            messages, enable_thinking=enable_thinking, **kwargs)
+    except TypeError:
+        # template does not accept the flag; nothing to disable
+        return tokenizer.apply_chat_template(messages, **kwargs)
+
+
+def prepare(model, tokenizer, messages: list[dict[str, str]], prefill: bool,
+            enable_thinking: bool = False):
+    """Render, tokenise, and locate the user span. Returns (ids, positions, text).
+
+    One place so every gate injects over the same span under the same template
+    flags. `positions` is Garcia's all_user policy over the LAST user turn.
+    """
+    rendered = render(tokenizer, messages, prefill, enable_thinking)
+    ids = model.encode(rendered)
+    content = [m["content"] for m in messages if m["role"] == "user"][-1]
+    positions = user_positions(tokenizer, rendered, content)
+    positions = [i for i in positions if i < int(ids.shape[1])]
+    if not positions:
+        raise ValueError("user span fell outside the encoded prompt")
+    return ids, positions, rendered
+
+
+def user_positions(tokenizer, rendered: str, user_content: str,
+                   max_length: int = 512) -> list[int]:
+    """Token indices covering the user turn -- Garcia's `all_user` policy.
+
+    Their config injects over every user token, not a window at the end of the
+    prompt. An 8-token tail window lands in the assistant prefill and the chat
+    template's control tokens, which is not where the user's content is.
+
+    Located by character offsets so it does not depend on guessing how the
+    template tokenises.
+    """
+    start = rendered.rfind(user_content)
+    if start < 0:
+        raise ValueError("user content not found in the rendered prompt")
+    end = start + len(user_content)
+    encoded = tokenizer(rendered, return_offsets_mapping=True,
+                        truncation=True, max_length=max_length)
+    positions = [
+        i for i, (a, b) in enumerate(encoded["offset_mapping"])
+        if b > a and a >= start and b <= end
+    ]
+    if not positions:
+        raise ValueError("no tokens fell inside the user span")
+    return positions

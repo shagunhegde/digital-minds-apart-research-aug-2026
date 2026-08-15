@@ -126,16 +126,11 @@ def main() -> None:
     if len(concepts) < 2:
         raise RuntimeError(f"only {len(concepts)} single-token concepts available")
 
-    rendered = prompt_mod.render(tok, prompt_mod.probe_messages(), prefill=True)
-    base_ids = model.encode(rendered)
+    base_ids, positions, rendered = prompt_mod.prepare(
+        model, tok, prompt_mod.probe_messages(), prefill=True,
+        enable_thinking=cfg["planned"]["enable_thinking"])
     seq_len = int(base_ids.shape[1])
-    stop = seq_len - args.inject_tail_offset
-    start = max(0, stop - args.inject_width)
-    positions = slice(start, stop)
-    if start <= 0 or stop >= seq_len:
-        raise RuntimeError(
-            f"injection window {start}:{stop} leaves no tokens on both sides "
-            f"of a {seq_len}-token prompt; lower --inject-width")
+    start, stop = positions[0], positions[-1] + 1
 
     vecs, _baseline_mean = vec_mod.extract_concept_vectors(
         model, tok, concepts, baseline_words, layer)
@@ -266,12 +261,10 @@ def main() -> None:
     # and raises NLL under the clean model -- that metric cannot separate
     # "steering worked" from "brain damage". On a task the injection should not
     # change, rising NLL means degradation and nothing else.
-    neutral_text = prompt_mod.render(
-        tok, [{"role": "user", "content": prompt_mod.TASK_PROMPTS[0]}], prefill=False)
-    neutral_ids = model.encode(neutral_text)
+    neutral_ids, neutral_pos, _ = prompt_mod.prepare(
+        model, tok, [{"role": "user", "content": prompt_mod.TASK_PROMPTS[0]}],
+        prefill=False, enable_thinking=cfg["planned"]["enable_thinking"])
     n_seq = int(neutral_ids.shape[1])
-    n_stop = n_seq - args.inject_tail_offset
-    neutral_pos = slice(max(0, n_stop - args.inject_width), n_stop)
     neutral_norm = inject.median_residual_norm(model, neutral_ids, layer, neutral_pos)
 
     n_gen = min(4, len(concepts))
@@ -376,8 +369,9 @@ def main() -> None:
     w(f"  injection layer          {layer}  (block type: "
       f"{cfg['planned'].get('layer_block_type', 'unspecified')})")
     w(f"  prompt tokens            {seq_len}")
-    w(f"  injection window         [{start}, {stop})  width {stop - start}, "
-      f"{seq_len - stop} tokens after")
+    w(f"  injection positions      all_user: {len(positions)} tokens "
+      f"[{start}, {stop}) of {seq_len}   (Garcia position_policy)")
+    w(f"  enable_thinking          {cfg['planned']['enable_thinking']}")
     w(f"  median clean residual L2 {median_norm:.4f}  (alpha_abs = alpha_rel x this)")
     w(f"  alpha_rel ladder         {alphas_rel}")
     w(f"  concepts                 {len(concepts)}  {concepts}")

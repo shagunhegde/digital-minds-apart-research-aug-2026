@@ -113,7 +113,31 @@ planned:
   f2_primary_layer: 59
   # alpha_rel is a multiple of the median clean residual L2 norm at the
   # injection positions, cached per layer. Never pass a raw alpha.
-  strengths_rel: [1.0, 2.0, 4.0, 8.0]
+  #
+  # Taken from Garcia's config for THIS checkpoint
+  # (configs/qwen3.6-27b-explicit-facts-workspace-first-half.yaml), whose
+  # intervention is arithmetically identical to ours:
+  #     delta = strength * additive_norm_multiplier * base_norm * unit(v)
+  # with additive_norm_multiplier 2.0 and strengths 0.01 .. 0.07, i.e. an
+  # effective alpha_rel of 0.02 .. 0.14.
+  #
+  # The previous ladder [1, 2, 4, 8] was 7x to 400x beyond their strongest
+  # setting. At alpha_rel 1 the perturbation equals the residual it is added
+  # to, which does not steer the model so much as overwrite it -- G2 saw the
+  # probe answer 'apple' identically at alpha 0 and alpha 8, and G3 saw
+  # identification 0.000 in every cell. The response is non-monotonic and the
+  # whole ladder sat far past the peak.
+  strengths_rel: [0.02, 0.05, 0.09, 0.14]
+  strengths_source: "Garcia qwen3.6-27b config: strength x additive_norm_multiplier(2.0)"
+
+  # Garcia's position_policies: [all_user] -- inject over EVERY user-turn
+  # token. Our 8-token tail window landed in the assistant prefill and the
+  # chat template's control tokens, which is not where the user content is.
+  position_policy: all_user
+
+  # Garcia sets enable_thinking: false. With it on, this model opens
+  # generations with "Here's a thinking process:" and spends the budget there.
+  enable_thinking: false
   orders: [task_then_report, report_then_task]   # Garcia protocol names
   # These names are what appear in every report and shard. src/sweep.py holds
   # the authoritative tuple (CONDITIONS); this list must match it exactly.

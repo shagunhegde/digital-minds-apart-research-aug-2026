@@ -133,12 +133,9 @@ def main() -> None:
         yes_t = torch.as_tensor(yes_ids, device=device)
         no_t = torch.as_tensor(no_ids, device=device)
 
-        rendered = prompt_mod.render(tok, prompt_mod.detect_messages(), prefill=True)
-        base_ids = model.encode(rendered)
-        seq_len = int(base_ids.shape[1])
-        stop = seq_len - args.inject_tail_offset
-        start = max(0, stop - args.inject_width)
-        positions = slice(start, stop)
+        base_ids, positions, _ = prompt_mod.prepare(
+            model, tok, prompt_mod.detect_messages(), prefill=True,
+            enable_thinking=cfg["planned"]["enable_thinking"])
         median_norm = inject.median_residual_norm(
             model, base_ids, pilot_layer, positions)
 

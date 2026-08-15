@@ -110,11 +110,10 @@ def main() -> None:
     tasks = prompt_mod.TASK_PROMPTS[: args.n_tasks]
 
     def prepared(messages):
-        ids = model.encode(prompt_mod.render(tok, messages, prefill=True))
-        seq = int(ids.shape[1])
-        stop = seq - args.inject_tail_offset
-        start = max(0, stop - args.inject_width)
-        return ids, slice(start, stop)
+        ids, positions, _ = prompt_mod.prepare(
+            model, tok, messages, prefill=True,
+            enable_thinking=cfg["planned"]["enable_thinking"])
+        return ids, positions
 
     boolean_mass: list = []
 
