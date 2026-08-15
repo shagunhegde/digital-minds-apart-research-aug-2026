@@ -53,7 +53,7 @@ def main() -> None:
     expected_cells = manifest["cells_per_concept"]
 
     shards = sorted(args.sweep.glob("shard_*.npz"))
-    strays = sorted(args.sweep.glob("*.npz.tmp"))
+    strays = sorted(args.sweep.glob("*.tmp.npz"))
 
     # ------------------------------------------------------------- load
     loaded, unreadable, digests = {}, [], {}

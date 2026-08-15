@@ -124,7 +124,9 @@ def main() -> None:
         print(f"[prompt] {order}: seq={ids.shape[1]} window={positions.start}:"
               f"{positions.stop} answer={answer!r}")
 
-    done = sweep_mod.completed_concepts(args.out, concepts)
+    fingerprint = sweep_mod.config_fingerprint(
+        layers, strengths, orders, readout_layers, task)
+    done = sweep_mod.completed_concepts(args.out, concepts, fingerprint)
     todo = [c for c in concepts if c not in done]
     print(f"[sweep] {len(cells)} cells/concept | {len(done)} shards done, "
           f"{len(todo)} to run")
@@ -143,6 +145,7 @@ def main() -> None:
                 concept=np.array(concept),
                 cache_layers=np.array(cache_layers, dtype=np.int32),
                 written_at=np.array(time.time()),
+                fingerprint=np.array(fingerprint),
                 **cell_arrays, **payload)
         elapsed = time.time() - started
         timings.append({"concepts": chunk, "seconds": elapsed,
@@ -164,6 +167,7 @@ def main() -> None:
         "true_ids": true_ids, "false_ids": false_ids,
         "topk": args.topk, "batch": args.batch, "seed": seed,
         "model_revision": cfg["model"]["revision"],
+        "fingerprint": fingerprint,
         "timings": timings,
         "wall_s": time.time() - t0,
     }

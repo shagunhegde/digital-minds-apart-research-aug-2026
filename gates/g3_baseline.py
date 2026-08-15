@@ -280,10 +280,19 @@ def main() -> None:
         w("    means the detection channel is reading the wrong position")
 
     w("\nPRIMARY")
-    w("  detection from next-token logits. TPR at threshold 0.5; FPR from the")
-    w("  zero-strength arm. AUC is threshold-free: P(injected > control),")
-    w("  derived from Cliff's delta, so it does not depend on the 0.5 cut.")
-    w(f"    {'layer':>5} {'alpha':>6} {'TPR':>22} {'FPR':>22} {'TPR-FPR':>9} {'AUC':>7}")
+    w("  detection from next-token logits. Two thresholds, because a fixed 0.5")
+    w("  cut is uninformative when the whole score distribution sits far below")
+    w("  it: the clean control median is "
+      f"{float(np.median(control)):.4f}, so TPR@0.5 reads 0.000 even when")
+    w("  injection reliably moves the score. TPR@ctrl is the fraction of")
+    w("  injected trials above EVERY control trial, which is the same idea as")
+    w("  f1's 5% FPR threshold applied to a control set of only "
+      f"{control.size}.")
+    w("  AUC is threshold-free: P(injected > control), from Cliff's delta.")
+    ctrl_threshold = float(np.max(control)) if control.size else float("nan")
+    w(f"    control max = {ctrl_threshold:.4f}   (the TPR@ctrl threshold)")
+    w(f"    {'layer':>5} {'alpha':>6} {'TPR@0.5':>17} {'TPR@ctrl':>17}"
+      f" {'AUC':>7} {'median score':>13}")
     fpr_hits = int((control > 0.5).sum())
     fpr_iv = stats.wilson(fpr_hits, len(control))
     grid_rows = []
@@ -291,12 +300,21 @@ def main() -> None:
         for strength in strengths:
             arr = injected[(layer, strength)].ravel()
             tpr = stats.wilson(int((arr > 0.5).sum()), arr.size)
+            tpr_c = stats.wilson(int((arr > ctrl_threshold).sum()), arr.size)
             auc = (stats.cliffs_delta(arr, control) + 1) / 2
             grid_rows.append({"layer": layer, "strength": strength,
-                              "tpr": tpr.point, "fpr": fpr_iv.point,
-                              "auc": auc, "n": int(arr.size)})
-            w(f"    {layer:>5} {strength:>6.1f} {fmt(tpr):>22} {fmt(fpr_iv):>22}"
-              f" {tpr.point - fpr_iv.point:>+9.3f} {auc:>7.3f}")
+                              "tpr": tpr.point, "tpr_ctrl": tpr_c.point,
+                              "fpr": fpr_iv.point, "auc": auc,
+                              "median_score": float(np.median(arr)),
+                              "n": int(arr.size)})
+            w(f"    {layer:>5} {strength:>6.1f} {fmt(tpr):>17} {fmt(tpr_c):>17}"
+              f" {auc:>7.3f} {float(np.median(arr)):>13.4f}")
+    w(f"  zero-strength FPR at 0.5           {fmt(fpr_iv)}  n={control.size}")
+    w("  NOTE: a high TPR@ctrl with a low median score means injection moves")
+    w("  the detection score reliably but nowhere near a decision boundary.")
+    w("  Compare it against the random-direction arm below before reading it")
+    w("  as introspection -- if random directions move it too, it is a")
+    w("  perturbation response, not concept detection.")
     w(f"  identification (separate from detection), layer {gen_layer} "
       f"alpha_rel {args.gen_strength}")
     id_hits = sum(1 for _, hit in identified if hit)

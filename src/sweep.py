@@ -114,13 +114,51 @@ def shard_path(out_dir: Path, concept: str) -> Path:
     return Path(out_dir) / f"shard_{safe}.npz"
 
 
-def completed_concepts(out_dir: Path, concepts: list[str]) -> set[str]:
-    return {c for c in concepts if shard_path(out_dir, c).exists()}
+def config_fingerprint(layers, strengths, orders, readout_layers, task) -> str:
+    """Identifies the configuration a shard was produced under."""
+    import hashlib
+
+    payload = json.dumps({"layers": sorted(layers), "strengths": sorted(strengths),
+                          "orders": sorted(orders),
+                          "readout_layers": sorted(readout_layers),
+                          "task": task}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def completed_concepts(out_dir: Path, concepts: list[str],
+                       fingerprint: str | None = None) -> set[str]:
+    """Concepts whose shard exists AND was produced under `fingerprint`.
+
+    Resuming on filename alone is not enough. Change the injection layer or
+    the strength ladder and every existing shard becomes stale, but the names
+    do not change -- the sweep would skip them and the run would silently mix
+    two configurations.
+    """
+    done = set()
+    for concept in concepts:
+        path = shard_path(out_dir, concept)
+        if not path.exists():
+            continue
+        if fingerprint is None:
+            done.add(concept)
+            continue
+        try:
+            blob = np.load(path, allow_pickle=False)
+            if str(blob["fingerprint"]) == fingerprint:
+                done.add(concept)
+        except Exception:  # noqa: BLE001  unreadable or pre-fingerprint shard
+            continue
+    return done
 
 
 def write_shard_atomic(path: Path, **arrays) -> None:
-    """Write via a temp file and rename, so a kill never leaves a half shard."""
-    tmp = path.with_suffix(".npz.tmp")
+    """Write via a temp file and rename, so a kill never leaves a half shard.
+
+    The temp name has to END in .npz: numpy.savez silently appends .npz when
+    the filename does not, so a ".npz.tmp" temp wrote ".npz.tmp.npz" and the
+    rename then looked for a file that was never created.
+    """
+    tmp = path.with_suffix(".tmp.npz")
     np.savez(tmp, **arrays)
     os.replace(tmp, path)
 
