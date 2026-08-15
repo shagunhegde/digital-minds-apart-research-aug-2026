@@ -117,12 +117,14 @@ def main() -> None:
         prompt_meta[order] = {
             "clean_task_answer": answer,
             "seq_len": int(ids.shape[1]),
-            "window": [positions.start, positions.stop],
+            "n_injected_positions": len(positions),
+            "position_span": [int(positions[0]), int(positions[-1]) + 1],
             "median_norms": norms,
             "rendered_tail": rendered[-220:],
         }
-        print(f"[prompt] {order}: seq={ids.shape[1]} window={positions.start}:"
-              f"{positions.stop} answer={answer!r}")
+        print(f"[prompt] {order}: seq={ids.shape[1]} "
+              f"all_user={len(positions)} tokens "
+              f"[{positions[0]}..{positions[-1]}] answer={answer!r}")
 
     fingerprint = sweep_mod.config_fingerprint(
         layers, strengths, orders, readout_layers, task)

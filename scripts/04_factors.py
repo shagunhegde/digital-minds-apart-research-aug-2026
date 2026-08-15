@@ -207,7 +207,9 @@ def main() -> None:
             args.inject_tail_offset)
         seq_len = int(ids.shape[1])
         median_norm = inject.median_residual_norm(model, ids, op_layer, positions)
-        rand_pos = int(rng.integers(0, max(1, positions.start)))
+        # a position OUTSIDE the injected span, for the position control
+        first_injected = int(positions[0])
+        rand_pos = int(rng.integers(0, max(1, first_injected)))
         for condition in sweep_mod.CONDITIONS:
             members = [c for c in concepts if (c, order, condition) in cell_key]
             for begin in range(0, len(members), args.batch):
@@ -231,7 +233,7 @@ def main() -> None:
                         for k, concept in enumerate(chunk):
                             row = cell_key[(concept, order, condition)]
                             for label, index in (("report", seq_len - 1),
-                                                 ("injection", positions.stop - 1),
+                                                 ("injection", int(positions[-1])),
                                                  ("random", rand_pos)):
                                 h = full[k, index, :].unsqueeze(0)
                                 pos_ranks[(readout_layer, label)][row] = \

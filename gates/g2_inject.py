@@ -187,8 +187,11 @@ def main() -> None:
         torch.full((1,), 4.0 * median_norm, device=device), positions,
         record_layers=probe_layers, record_positions=slice(None))
     # masks must live on the residuals' device to index them
+    # all_user positions are a token list, which need not be one contiguous
+    # run; mask by the actual indices rather than by a span.
+    pos_index = torch.as_tensor(list(positions), device=device)
     outside = torch.ones(seq_len, dtype=torch.bool, device=device)
-    outside[start:stop] = False
+    outside[pos_index] = False
     after = torch.zeros(seq_len, dtype=torch.bool, device=device)
     after[stop:] = True
     containment = {}
@@ -196,7 +199,7 @@ def main() -> None:
         diff = (clean_full["residuals"][l] - inj_full["residuals"][l]).abs()
         containment[l] = {
             "outside_window": float(diff[:, outside, :].max()),
-            "inside_window": float(diff[:, start:stop, :].max()),
+            "inside_window": float(diff[:, pos_index, :].max()),
             "after_window": float(diff[:, after, :].max()) if after.any() else float("nan"),
         }
 
