@@ -311,12 +311,13 @@ def main() -> None:
         for task in sorted(by_task):
             vals = np.concatenate(by_task[task])
             w(f"    {task[:50]:<52}{np.median(vals):>15.4f}{vals.size:>6}")
+        
         if len(by_task) > 1:
-            task_medians = np.array(
-                [float(np.median(np.concatenate(v))) for v in by_task.values()])
+            task_medians = np.array([float(np.median(np.concatenate(v))) for v in by_task.values()])
             w(f"    spread across tasks   min {task_medians.min():.4f}  "
               f"max {task_medians.max():.4f}  "
               f"range {np.ptp(task_medians):.4f}")
+    
         w("    p_true + p_false should be near 1 if the next token really is a")
         w("    JSON boolean; a small sum means the prefill is not landing where")
         w("    it was meant to.")
