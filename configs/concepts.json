@@ -1,0 +1,2536 @@
+{
+ "source": "github.com/safety-research/introspection-mechanisms",
+ "commit": "5d5d9b485e293dc766c3a056cfe50283a7e435b6",
+ "paths": [
+  "experiments/concepts_list.py::NEW_CONCEPTS",
+  "experiments/01_concept_injection.py::DEFAULT_TEST_CONCEPTS"
+ ],
+ "note": "450 new + 50 paper baseline. Categories are the source file's own headers, validated against the counts those headers declare. The abstract/concrete mapping is OURS and is stated explicitly so a reader can re-bucket; families that are neither cleanly (professions, science terms, sports, music/art, weather, actions-as-nouns) are 'mixed' rather than forced into a binary.",
+ "excluded_by_source_as_hallucination_prone": [
+  "Apples",
+  "Bicycles",
+  "Ocean"
+ ],
+ "abstract_categories": [
+  "ABSTRACT CONCEPTS",
+  "EMOTIONS/MENTAL STATES",
+  "SOCIAL CONCEPTS",
+  "TIME/TEMPORAL CONCEPTS"
+ ],
+ "concrete_categories": [
+  "ANIMALS",
+  "BODY PARTS",
+  "BUILDINGS/STRUCTURES",
+  "COLORS",
+  "EVERYDAY OBJECTS",
+  "FOODS/BEVERAGES",
+  "GEOGRAPHY",
+  "MATERIALS",
+  "PLANTS",
+  "VEHICLES/TRANSPORT"
+ ],
+ "category_counts_validated": true,
+ "n": 500,
+ "concepts": [
+  {
+   "word": "Elephants",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Dolphins",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Eagles",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Serpents",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Wolves",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Koalas",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Octopuses",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Penguins",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Crocodiles",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Hummingbirds",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Spiders",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Whales",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Foxes",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Owls",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Jellyfish",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cheetahs",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Salamanders",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Peacocks",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Scorpions",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Gorillas",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Flamingos",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Beetles",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Seahorses",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ravens",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lobsters",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Chameleons",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Bats",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Kangaroos",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Starfish",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Hedgehogs",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Parrots",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Crabs",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Falcons",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ants",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Squirrels",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Swans",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Turtles",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Bees",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Moose",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Otters",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Centipedes",
+   "category": "ANIMALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Fingers",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Elbows",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Skulls",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lungs",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Knees",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Spines",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tongues",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ankles",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ribs",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Wrists",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Shoulders",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Teeth",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Eyebrows",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Hips",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Necks",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Palms",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Earlobes",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Nostrils",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Thumbs",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Foreheads",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Chins",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Heels",
+   "category": "BODY PARTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Crimson",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Turquoise",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Amber",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Violet",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Scarlet",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Indigo",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Maroon",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Magenta",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cerulean",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Burgundy",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lavender",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Teal",
+   "category": "COLORS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Probability",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Entropy",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Paradoxes",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Symmetry",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Infinity",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Chaos",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Gravity",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Velocity",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Momentum",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Friction",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Consciousness",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Wisdom",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Causality",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Integrity",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Curiosity",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Ambition",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Duality",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Resilience",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Destiny",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Karma",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Irony",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Satire",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Metaphors",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Analogies",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Hypotheses",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Theories",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Proofs",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Axioms",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Dilemmas",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Compromise",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Sacrifice",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Redemption",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Transformation",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Evolution",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Revolution",
+   "category": "ABSTRACT CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Anxiety",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Jealousy",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Gratitude",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Nostalgia",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Frustration",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Excitement",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Boredom",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Confusion",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Disgust",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Envy",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Pride",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Shame",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Guilt",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Loneliness",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Contentment",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Skepticism",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Wonder",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Awe",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Despair",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Hope",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Regret",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Anticipation",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Dread",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Serenity",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Melancholy",
+   "category": "EMOTIONS/MENTAL STATES",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Chocolate",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cinnamon",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ginger",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tofu",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Wasabi",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Mustard",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pepper",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Garlic",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Onions",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lemons",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Oranges",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Bananas",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Mangoes",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Grapes",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cherries",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Peaches",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Almonds",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Walnuts",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cashews",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Peanuts",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Coffee",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tea",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Wine",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Whiskey",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cheese",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Butter",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Eggs",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Caviar",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Sausages",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Dumplings",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Polenta",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Noodles",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Soups",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pizzas",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Sushi",
+   "category": "FOODS/BEVERAGES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Copper",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Iron",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Steel",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Titanium",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Aluminum",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Granite",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Kevlar",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Limestone",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Concrete",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Glass",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ceramic",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Porcelain",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Leather",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Silk",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cotton",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Nylon",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Linen",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Velvet",
+   "category": "MATERIALS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Surgeons",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Architects",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Engineers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Scientists",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Lawyers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Pilots",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Chefs",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Farmers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Teachers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Nurses",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Firefighters",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Detectives",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Journalists",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Astronomers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Archaeologists",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Philosophers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Economists",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Therapists",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Electricians",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Plumbers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Carpenters",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Tailors",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Librarians",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Curators",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Diplomats",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Translators",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Choreographers",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sculptors",
+   "category": "PROFESSIONS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Swimming",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Dancing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Climbing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Running",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Jumping",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Diving",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Skating",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Skiing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Surfing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Fishing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Hunting",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Gardening",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Cooking",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Painting",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Writing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Reading",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Singing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Whistling",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Laughing",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Crying",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sleeping",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Dreaming",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Thinking",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Planning",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Building",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Creating",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Discovering",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Exploring",
+   "category": "ACTIONS/VERBS as nouns",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Photons",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Electrons",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Neutrons",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Protons",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Molecules",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Atoms",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Quarks",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Neurons",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Enzymes",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Proteins",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Chromosomes",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Genes",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Viruses",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Bacteria",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Fungi",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Ecosystems",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Mitochondria",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Ribosomes",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Comets",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Asteroids",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Isotopes",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Catalysts",
+   "category": "SCIENCE TERMS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Scissors",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Stethoscopes",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Screws",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Binoculars",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Threads",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Buttons",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Zippers",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Candles",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lamps",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Clocks",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Keys",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Locks",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Chains",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ropes",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ladders",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Brushes",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Combs",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Towels",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Blankets",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pillows",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Curtains",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Carpets",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Chandeliers",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Wardrobes",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Shelves",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Drawers",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Boxes",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Jars",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Bottles",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cups",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Plates",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Forks",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Spoons",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Knives",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pans",
+   "category": "EVERYDAY OBJECTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cathedrals",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Mosques",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Temples",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pyramids",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Castles",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cottages",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lighthouses",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Windmills",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Factories",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Warehouses",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Barns",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Bridges",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tunnels",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Dams",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Pagodas",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Monuments",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Stadiums",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Arenas",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Libraries",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Museums",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Hospitals",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Prisons",
+   "category": "BUILDINGS/STRUCTURES",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Rickshaws",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Motorcycles",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Automobiles",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Trains",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Submarines",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Helicopters",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Airplanes",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Rockets",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Sailboats",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Canoes",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Kayaks",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ferries",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tractors",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ambulances",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tanks",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Carriages",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Sleds",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Skateboards",
+   "category": "VEHICLES/TRANSPORT",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Basketball",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Football",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Baseball",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Tennis",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Golf",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Boxing",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Wrestling",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Archery",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Fencing",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Gymnastics",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Weightlifting",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Marathon",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Triathlon",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Hockey",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Cricket",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Rugby",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Volleyball",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Badminton",
+   "category": "SPORTS",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Violins",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Cellos",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Bagpipes",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Drums",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Flutes",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Harps",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Guitars",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Saxophones",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Clarinets",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Accordions",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Symphonies",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Operas",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Ballets",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sculptures",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Mosaics",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Tapestries",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Frescoes",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Murals",
+   "category": "MUSIC/ART",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Thunderstorms",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Hurricanes",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Auroras",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Droughts",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Floods",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Hailstorms",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Rainbows",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Squalls",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Mist",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Dew",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sleet",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Blizzards",
+   "category": "WEATHER",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Marshes",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lagoons",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lakes",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tundras",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Canyons",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Savannas",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Atolls",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Islands",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Peninsulas",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Archipelagos",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Fjords",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Deltas",
+   "category": "GEOGRAPHY",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Centuries",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Decades",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Millennia",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Equinoxes",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Instants",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Eternities",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Eras",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Epochs",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Seasons",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Twilights",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Dawns",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Solstices",
+   "category": "TIME/TEMPORAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Weddings",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Funerals",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Ceremonies",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Rituals",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Traditions",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Customs",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Festivals",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Celebrations",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Protests",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Elections",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Debates",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Negotiations",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Treaties",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Alliances",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Conflicts",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Reconciliations",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Partnerships",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Rivalries",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Friendships",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Mentorships",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Apprenticeships",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Citizenship",
+   "category": "SOCIAL CONCEPTS",
+   "bucket": "abstract"
+  },
+  {
+   "word": "Roses",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Tulips",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Orchids",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Sunflowers",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Daisies",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Lilies",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Ferns",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Mosses",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Cacti",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Vines",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Shrubs",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Herbs",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Grasses",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Seaweed",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Mushrooms",
+   "category": "PLANTS",
+   "bucket": "concrete"
+  },
+  {
+   "word": "Dust",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Satellites",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Trumpets",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Origami",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Illusions",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Cameras",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Lightning",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Constellations",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Treasures",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Phones",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Trees",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Avalanches",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Mirrors",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Fountains",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Quarries",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sadness",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Xylophones",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Secrecy",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Oceans",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Happiness",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Deserts",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Kaleidoscopes",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Sugar",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Vegetables",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Poetry",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Aquariums",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Bags",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Peace",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Caverns",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Memories",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Frosts",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Volcanoes",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Boulders",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Harmonies",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Masquerades",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Rubber",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Plastic",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Blood",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Amphitheaters",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Contraptions",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Youths",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Dynasties",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Snow",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Dirigibles",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Algorithms",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Denim",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Monoliths",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Milk",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Bread",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  },
+  {
+   "word": "Silver",
+   "category": "PAPER_BASELINE_50",
+   "bucket": "mixed"
+  }
+ ]
+}

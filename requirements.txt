@@ -1,0 +1,29 @@
+# Plain HuggingFace transformers with raw forward hooks. No TransformerLens,
+# no nnsight: at 27B they add memory overhead and an abstraction layer between
+# us and hook placement, which is exactly where the bugs live.
+torch
+transformers>=4.57.1          # config.get_text_config() / Qwen3_5 support
+accelerate                    # device_map for the 55.6 GB checkpoint
+huggingface_hub
+numpy
+pandas
+scikit-learn
+scipy
+matplotlib
+pyyaml
+
+# The Jacobian lens reference implementation. Vendored by reference rather
+# than reimplemented: it owns lens loading, `transport` (the bare J_l @ h that
+# the injection harness reads modified residuals through) and the
+# use_jacobian=False logit-lens baseline that G1 needs as a control.
+#   pip install git+https://github.com/anthropics/jacobian-lens@581d398613e5602a5af361e1c34d3a92ea82ba8e
+
+# One dependency beyond the build spec's list. Hartigan's dip is not in scipy,
+# and the hand-rolled version was wrong in a way that understated bimodality
+# without erroring. See scripts/00_verify_dip.py and ASSETS.md.
+diptest
+
+# Optional. Only imported when ANTHROPIC_API_KEY is set, for the vendored
+# LLM-judge rubrics. Without it the deterministic mention_* scorers are used
+# and the report says so; the judge never silently degrades to string matching.
+anthropic

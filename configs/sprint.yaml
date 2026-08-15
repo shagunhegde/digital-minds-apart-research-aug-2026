@@ -1,0 +1,106 @@
+# Single source of truth for the sprint.
+#
+# Every value under `verified:` was read off the live asset on 2026-08-14 by
+# gates/g0_assets.py's offline half or by direct HF/GitHub API query; see
+# ASSETS.md. Values under `planned:` are choices, not measurements, and some
+# are still pending a gate report.
+
+seed: 0
+device: cuda
+dtype: bfloat16
+
+model:
+  repo: Qwen/Qwen3.6-27B
+  revision: 6a9e13bd6fc8f0983b9b99948120bc37f49c13e9  # HF sha, pinned
+  verified:
+    architecture: Qwen3_5ForConditionalGeneration     # VLM wrapper, not *ForCausalLM
+    text_config_model_type: qwen3_5_text
+    hidden_size: 5120
+    num_hidden_layers: 64
+    vocab_size: 248320
+    dtype: bfloat16
+    safetensors_total_bytes: 55_600_000_000           # ~55.6 GB, 15 shards
+    tie_word_embeddings: false
+    # Residual blocks live at model.language_model.layers; final norm at
+    # model.language_model.norm; unembed at lm_head. This is jlens Layout
+    # #2 ("model.language_model"), so jlens.from_hf auto-detects it and
+    # hooks land on text blocks only -- the 333-key model.visual tower is
+    # never touched.
+    jlens_layout: model.language_model
+    # Hybrid attention: layer_types alternates three linear_attention blocks
+    # to one full_attention block, 16 full-attention layers in 64. See
+    # ASSETS.md "open questions" -- this bears on the prefill/decode split.
+    full_attention_interval: 4
+    # A separate multi-token-prediction head (mtp.*) ships in the weights and
+    # is not part of the residual stack.
+
+lens:
+  repo: neuronpedia/jacobian-lens
+  filename: qwen3.6-27b/jlens/Salesforce-wikitext/Qwen3.6-27B_jacobian_lens_n1000.pt
+  revision: a4114d7752d11eb546e6cf372213d7e75526d3a1
+  verified:
+    file_bytes: 3_303_032_772
+    lfs_sha256: 1718c8c52dd8a9dad03738d4d625937c1fbba10be325b872ed446c7290fc11e1
+    fitted_on: Salesforce/wikitext
+    n_prompts: 1000
+    trained_by: "@mntss (Mateusz Piotrowski, Anthropic Interpretability)"
+    # The stored object is J_l itself, [d_model, d_model] per layer -- NOT
+    # W_U @ J_l. Readout is unembed(J_l @ h). File size implies 63 layers of
+    # 5120x5120 fp16 (63 * 5120^2 * 2 = 3_302_993_920, + 38_852 B of pickle
+    # overhead); same arithmetic reproduces gemma-3-27b to 18_859 B. G0
+    # confirms source_layers at runtime.
+    stored_object: J_l
+    stored_dtype: float16
+    inferred_shape: [63, 5120, 5120]
+    inferred_source_layers: "0..62 (of 64 blocks) -- confirm in G0"
+    # JacobianLens.__init__ casts to float32, so the resident copy is ~6.6 GB
+    # on CPU. Only the swept layers are moved to GPU.
+    resident_fp32_bytes: 6_605_987_840
+
+# Second, independent fit of the same object, plus the R-lens. Decided
+# 2026-08-14: the Neuronpedia lens above stays primary for every headline
+# number; this one is a robustness arm, re-running only the f2 readout stage
+# to bound how much of f2 is lens-fit noise. No extra generation.
+lens_secondary:
+  repo: camilablank/workspace-lenses
+  j_lens: qwen3.6-27b/j-lens/lens.pt        # 3_303_028_503 B -- not byte-identical
+  r_lens: qwen3.6-27b/r-lens/lens.pt        # 3_303_028_567 B -- Phase 5 comparison
+  role: robustness_arm
+
+code:
+  jlens:
+    repo: https://github.com/anthropics/jacobian-lens
+    commit: 581d398613e5602a5af361e1c34d3a92ea82ba8e
+  introspection_mechanisms:
+    repo: https://github.com/safety-research/introspection-mechanisms
+    commit: 5d5d9b485e293dc766c3a056cfe50283a7e435b6
+  garcia:
+    repo: https://github.com/e-m-garcia/j-lens-verbalized-awareness
+    commit: f92218cd08a3e0a7aea02f4be3407d0fe5c8b84a
+  jspace_replication:
+    repo: https://github.com/tao-hpu/jspace-replication
+    commit: e03ee9711e2b8b7116f173aff32de38a3a463c51
+
+planned:
+  # Garcia's band prior: layers 24-40 outperform 41-57 on this model.
+  #
+  # Decided 2026-08-14: sample only full_attention blocks. layer_types puts
+  # full_attention at indices == 3 (mod 4), so inside the 24-40 band the
+  # candidates are 27, 31, 35, 39; the first three are taken. This keeps the
+  # band prior intact at no cost while restricting the sweep to blocks where
+  # the KV-cache half of Garcia's prefill-only argument holds literally.
+  # The other 48 blocks are linear_attention and carry recurrent state.
+  layers: [27, 31, 35]
+  layer_block_type: full_attention
+  # alpha_rel is a multiple of the median clean residual L2 norm at the
+  # injection positions, cached per layer. Never pass a raw alpha.
+  strengths_rel: [1.0, 2.0, 4.0, 8.0]
+  orders: [task_then_report, report_then_task]   # Garcia protocol names
+  conditions: [injected, control_zero, control_random_direction]
+  n_concepts: 60                                 # 20 high / 20 mid / 20 zero
+  readout_k: [1, 5, 10, 25, 50]                  # f2 is a curve, not a scalar
+  generation:
+    max_new_tokens: 96
+    temperature: 1.0
+    samples_per_condition: 4
+  batch_size: 8                                  # confirm against G2 cost
